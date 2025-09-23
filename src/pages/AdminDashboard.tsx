@@ -37,19 +37,39 @@ const AdminDashboard: React.FC = () => {
   const [alertHeader, setAlertHeader] = useState('');
 
   useEffect(() => {
-    // Check authentication and redirect if needed
-    if (!isAuthenticated && !isLegacyMode) {
-      history.push('/login');
-      return;
-    }
+    checkAuthAndLoadData();
+  }, [history]);
 
-    // Set organization context if in SaaS mode
-    if (!isLegacyMode && organization) {
-      setOrganizationContext(organization.id);
-    }
+  const checkAuthAndLoadData = () => {
+    try {
+      // Check for unified session first
+      const sessionData = localStorage.getItem('membershipScanSession');
+      if (sessionData) {
+        const session = JSON.parse(sessionData);
+        if (session.user && (session.organization || session.isLegacyMode)) {
+          // Valid session found
+          loadStats();
+          return;
+        }
+      }
 
-    loadStats();
-  }, [isAuthenticated, isLegacyMode, organization, history]);
+      // Check for legacy admin session
+      const adminSession = localStorage.getItem('adminSession');
+      if (adminSession) {
+        const session = JSON.parse(adminSession);
+        if (session.user) {
+          loadStats();
+          return;
+        }
+      }
+
+      // No valid session found, redirect to login
+      history.push('/admin/login');
+    } catch (error) {
+      console.error('Error checking session:', error);
+      history.push('/admin/login');
+    }
+  };
 
   const loadStats = async () => {
     try {

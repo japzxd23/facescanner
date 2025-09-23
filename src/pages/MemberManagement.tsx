@@ -51,7 +51,7 @@ import {
   close
 } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
-import { getMembers, addMember, updateMember, deleteMember, getCurrentUser, Member } from '../services/supabaseClient';
+import { getMembers, addMember, updateMember, deleteMember, Member } from '../services/supabaseClient';
 
 const MemberManagement: React.FC = () => {
   const [members, setMembers] = useState<Member[]>([]);
@@ -92,13 +92,31 @@ const MemberManagement: React.FC = () => {
     applyFilters();
   }, [members, searchText, statusFilter]);
 
-  const checkAuth = async () => {
+  const checkAuth = () => {
     try {
-      const user = await getCurrentUser();
-      if (!user) {
-        history.push('/admin/login');
+      // Check for unified session first
+      const sessionData = localStorage.getItem('membershipScanSession');
+      if (sessionData) {
+        const session = JSON.parse(sessionData);
+        if (session.user && (session.organization || session.isLegacyMode)) {
+          // Valid session found
+          return;
+        }
       }
+
+      // Check for legacy admin session
+      const adminSession = localStorage.getItem('adminSession');
+      if (adminSession) {
+        const session = JSON.parse(adminSession);
+        if (session.user) {
+          return;
+        }
+      }
+
+      // No valid session found, redirect to login
+      history.push('/admin/login');
     } catch (error) {
+      console.error('Error checking session:', error);
       history.push('/admin/login');
     }
   };

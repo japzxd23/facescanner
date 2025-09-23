@@ -51,7 +51,7 @@ import {
   refresh
 } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
-import { getAttendanceLogs, AttendanceLog, getCurrentUser, getMembers } from '../services/supabaseClient';
+import { getAttendanceLogs, AttendanceLog, getMembers } from '../services/supabaseClient';
 
 interface AttendanceStats {
   totalScans: number;
@@ -97,13 +97,31 @@ const AttendanceLogs: React.FC = () => {
     }
   }, [filteredLogs]);
 
-  const checkAuth = async () => {
+  const checkAuth = () => {
     try {
-      const user = await getCurrentUser();
-      if (!user) {
-        history.push('/admin/login');
+      // Check for unified session first
+      const sessionData = localStorage.getItem('membershipScanSession');
+      if (sessionData) {
+        const session = JSON.parse(sessionData);
+        if (session.user && (session.organization || session.isLegacyMode)) {
+          // Valid session found
+          return;
+        }
       }
+
+      // Check for legacy admin session
+      const adminSession = localStorage.getItem('adminSession');
+      if (adminSession) {
+        const session = JSON.parse(adminSession);
+        if (session.user) {
+          return;
+        }
+      }
+
+      // No valid session found, redirect to login
+      history.push('/admin/login');
     } catch (error) {
+      console.error('Error checking session:', error);
       history.push('/admin/login');
     }
   };
