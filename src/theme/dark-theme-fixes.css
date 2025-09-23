@@ -1,0 +1,114 @@
+/* Dark Theme UI Contrast Fixes */
+
+/* Fix outline buttons on dark backgrounds */
+ion-button[fill="outline"][color="primary"] {
+  --color: #60a5fa !important;
+  --border-color: #60a5fa !important;
+  --background-hover: rgba(96, 165, 250, 0.1) !important;
+  --background-activated: rgba(96, 165, 250, 0.2) !important;
+}
+
+ion-button[fill="outline"][color="medium"] {
+  --color: #9ca3af !important;
+  --border-color: #9ca3af !important;
+  --background-hover: rgba(156, 163, 175, 0.1) !important;
+  --background-activated: rgba(156, 163, 175, 0.2) !important;
+}
+
+/* Fix clear buttons on dark backgrounds */
+ion-button[fill="clear"][color="primary"] {
+  --color: #60a5fa !important;
+  --background-hover: rgba(96, 165, 250, 0.1) !important;
+  --background-activated: rgba(96, 165, 250, 0.2) !important;
+}
+
+ion-button[fill="clear"][color="medium"] {
+  --color: #9ca3af !important;
+  --background-hover: rgba(156, 163, 175, 0.1) !important;
+  --background-activated: rgba(156, 163, 175, 0.2) !important;
+}
+
+/* Ensure solid buttons have proper contrast */
+ion-button[color="primary"]:not([fill]) {
+  --color: #ffffff !important;
+  --background: #3b82f6 !important;
+  --background-hover: #2563eb !important;
+  --background-activated: #1d4ed8 !important;
+}
+
+/* Fix input labels and text in dark theme */
+ion-item {
+  --color: #e2e8f0 !important;
+  --background: rgba(42, 47, 62, 0.5) !important;
+}
+
+ion-label {
+  --color: #e2e8f0 !important;
+}
+
+ion-input {
+  --color: #e2e8f0 !important;
+  --placeholder-color: #9ca3af !important;
+}
+
+ion-select {
+  --color: #e2e8f0 !important;
+  --placeholder-color: #9ca3af !important;
+}
+
+/* Fix alert and modal text visibility */
+.alert-wrapper {
+  --color: #1f2937 !important;
+}
+
+.modal-wrapper {
+  --color: #1f2937 !important;
+}
+
+/* Fix card text in dark theme */
+.clean-card ion-card-title {
+  color: #e2e8f0 !important;
+}
+
+.clean-card ion-card-content {
+  color: #e2e8f0 !important;
+}
+
+/* Fix badge contrast */
+ion-badge[color="primary"] {
+  --color: #ffffff !important;
+  --background: #3b82f6 !important;
+}
+
+/* Fix loading spinner on dark backgrounds */
+ion-spinner {
+  --color: #60a5fa !important;
+}
+
+/* Better text contrast for dark backgrounds */
+.dark-bg-text {
+  color: #e2e8f0 !important;
+}
+
+.dark-bg-text-secondary {
+  color: #9ca3af !important;
+}
+
+.dark-bg-text-muted {
+  color: #6b7280 !important;
+}
+
+/* Fix button text specifically for better visibility */
+ion-button {
+  font-weight: 500;
+}
+
+ion-button[fill="outline"] {
+  font-weight: 600;
+}
+
+/* Ensure all text on dark backgrounds is visible */
+body.dark {
+  --ion-text-color: #e2e8f0;
+  --ion-text-color-rgb: 226, 232, 240;
+}

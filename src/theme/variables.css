@@ -1,0 +1,404 @@
+/* Ionic Variables and Theming. For more info, please see:
+http://ionicframework.com/docs/theming/ */
+
+:root {
+  /* Primary colors - Enterprise dark theme */
+  --ion-color-primary: #1a1d29;
+  --ion-color-primary-rgb: 26, 29, 41;
+  --ion-color-primary-contrast: #3b82f6;
+  --ion-color-primary-contrast-rgb: 59, 130, 246;
+  --ion-color-primary-shade: #0f1419;
+  --ion-color-primary-tint: #2a2f3e;
+
+  /* Secondary colors - Professional accent */
+  --ion-color-secondary: #2a2f3e;
+  --ion-color-secondary-rgb: 42, 47, 62;
+  --ion-color-secondary-contrast: #e2e8f0;
+  --ion-color-secondary-contrast-rgb: 226, 232, 240;
+  --ion-color-secondary-shade: #1e2332;
+  --ion-color-secondary-tint: #3f4651;
+
+  /* VIP Status - Elegant gold */
+  --ion-color-tertiary: #f59e0b;
+  --ion-color-tertiary-rgb: 245, 158, 11;
+  --ion-color-tertiary-contrast: #1a1d29;
+  --ion-color-tertiary-contrast-rgb: 26, 29, 41;
+  --ion-color-tertiary-shade: #d97706;
+  --ion-color-tertiary-tint: #f6a824;
+
+  /* Success - Professional green */
+  --ion-color-success: #059669;
+  --ion-color-success-rgb: 5, 150, 105;
+  --ion-color-success-contrast: #ffffff;
+  --ion-color-success-contrast-rgb: 255, 255, 255;
+  --ion-color-success-shade: #047857;
+  --ion-color-success-tint: #10b981;
+
+  /* Warning - Corporate amber */
+  --ion-color-warning: #d97706;
+  --ion-color-warning-rgb: 217, 119, 6;
+  --ion-color-warning-contrast: #ffffff;
+  --ion-color-warning-contrast-rgb: 255, 255, 255;
+  --ion-color-warning-shade: #b45309;
+  --ion-color-warning-tint: #f59e0b;
+
+  /* Danger - Enterprise red */
+  --ion-color-danger: #dc2626;
+  --ion-color-danger-rgb: 220, 38, 38;
+  --ion-color-danger-contrast: #ffffff;
+  --ion-color-danger-contrast-rgb: 255, 255, 255;
+  --ion-color-danger-shade: #b91c1c;
+  --ion-color-danger-tint: #ef4444;
+
+  /* Background colors - Enterprise theme */
+  --ion-background-color: #0f1419;
+  --ion-background-color-rgb: 15, 20, 25;
+
+  --ion-text-color: #e2e8f0;
+  --ion-text-color-rgb: 226, 232, 240;
+
+  --ion-color-step-50: #1a1d29;
+  --ion-color-step-100: #2a2f3e;
+  --ion-color-step-150: #3f4651;
+  --ion-color-step-200: #4b5563;
+  --ion-color-step-250: #6b7280;
+  --ion-color-step-300: #9ca3af;
+  --ion-color-step-350: #d1d5db;
+  --ion-color-step-400: #e5e7eb;
+  --ion-color-step-450: #f3f4f6;
+  --ion-color-step-500: #ffffff;
+
+  /* Card and surface styling - Enterprise theme */
+  --ion-card-background: #1a1d29;
+  --ion-item-background: #1a1d29;
+  --ion-toolbar-background: rgba(26, 29, 41, 0.95);
+  --ion-tab-bar-background: #0f1419;
+}
+
+/* Global styles for enterprise design */
+.clean-card {
+  --background: #1a1d29;
+  --color: #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.1);
+  margin: 16px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.status-allowed {
+  --color: #059669;
+  font-weight: 600;
+}
+
+.status-banned {
+  --color: #dc2626;
+  font-weight: 600;
+}
+
+.status-vip {
+  --color: #f59e0b;
+  font-weight: 600;
+}
+
+.camera-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  background: rgba(26, 29, 41, 0.95);
+  backdrop-filter: blur(15px);
+  padding: 32px;
+  border-radius: 16px;
+  box-shadow: 0 12px 48px rgba(59, 130, 246, 0.2);
+  text-align: center;
+  min-width: 380px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #e2e8f0;
+}
+
+.admin-card {
+  margin: 8px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.member-photo {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Scanner Visual Effects */
+.status-flash {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  pointer-events: none;
+  animation: flash 1s ease-out;
+}
+
+.status-flash-success {
+  background: rgba(16, 185, 129, 0.3);
+}
+
+.status-flash-warning {
+  background: rgba(251, 191, 36, 0.3);
+}
+
+.status-flash-danger {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+@keyframes flash {
+  0% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.scanning-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.scanning-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #00ff88, transparent);
+  animation: scan 2s ease-in-out infinite;
+  box-shadow: 0 0 10px #00ff88;
+}
+
+@keyframes scan {
+  0% { transform: translateY(0); opacity: 1; }
+  50% { opacity: 0.8; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+.scanning-corners {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 300px;
+  height: 200px;
+  transform: translate(-50%, -50%);
+}
+
+.corner {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border: 3px solid #00ff88;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.corner.top-left {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 10px;
+}
+
+.corner.top-right {
+  top: 0;
+  right: 0;
+  border-left: none;
+  border-bottom: none;
+  border-top-right-radius: 10px;
+}
+
+.corner.bottom-left {
+  bottom: 0;
+  left: 0;
+  border-right: none;
+  border-top: none;
+  border-bottom-left-radius: 10px;
+}
+
+.corner.bottom-right {
+  bottom: 0;
+  right: 0;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 10px;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.6;
+    box-shadow: 0 0 5px #00ff88;
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 15px #00ff88, 0 0 25px #00ff88;
+  }
+}
+
+.face-detection-box {
+  animation: fadeIn 0.3s ease-in-out;
+  transition: all 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Enhanced scanning feedback */
+.scanning-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image:
+    linear-gradient(rgba(0, 255, 136, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 136, 0.1) 1px, transparent 1px);
+  background-size: 20px 20px;
+  animation: gridMove 3s linear infinite;
+  opacity: 0.3;
+}
+
+@keyframes gridMove {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(20px, 20px); }
+}
+
+/* Enterprise scanning effects */
+.scanner-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 65%;
+  height: 65%;
+  border: 2px solid rgba(59, 130, 246, 0.4);
+  border-radius: 16px;
+  z-index: 3;
+  pointer-events: none;
+  background: rgba(59, 130, 246, 0.03);
+}
+
+.scanner-frame::before,
+.scanner-frame::after {
+  content: '';
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border: 2px solid #3b82f6;
+  border-radius: 4px;
+  animation: cornerPulse 3s ease-in-out infinite;
+}
+
+.scanner-frame::before {
+  top: -12px;
+  left: -12px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.scanner-frame::after {
+  bottom: -12px;
+  right: -12px;
+  border-top: none;
+  border-left: none;
+}
+
+@keyframes cornerPulse {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 8px rgba(59, 130, 246, 0.2); }
+  50% { opacity: 0.9; box-shadow: 0 0 16px rgba(59, 130, 246, 0.5); }
+}
+
+/* Facial Feature Tracking */
+.facial-features {
+  position: absolute;
+  pointer-events: none;
+  z-index: 15;
+}
+
+.feature-point {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.feature-point.eye {
+  background: #3b82f6;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.6);
+  animation: blink 3s ease-in-out infinite;
+}
+
+.feature-point.nose {
+  background: #f59e0b;
+  box-shadow: 0 0 4px rgba(245, 158, 11, 0.6);
+}
+
+.feature-point.mouth {
+  background: #ec4899;
+  box-shadow: 0 0 4px rgba(236, 72, 153, 0.6);
+  width: 3px;
+  height: 3px;
+}
+
+.feature-point.face-outline {
+  background: #6b7280;
+  box-shadow: 0 0 3px rgba(107, 114, 128, 0.5);
+  width: 2px;
+  height: 2px;
+}
+
+@keyframes blink {
+  0%, 90%, 100% { opacity: 1; }
+  95% { opacity: 0.3; }
+}
+
+/* Distance feedback - Enterprise style */
+.distance-indicator {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  background: rgba(26, 29, 41, 0.9);
+  backdrop-filter: blur(10px);
+  padding: 16px;
+  border-radius: 12px;
+  color: #e2e8f0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 20;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.1);
+}
+
+.distance-indicator.too-far {
+  border-color: rgba(220, 38, 38, 0.5);
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.distance-indicator.too-close {
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.distance-indicator.perfect {
+  border-color: rgba(5, 150, 105, 0.5);
+  color: #6ee7b7;
+  background: rgba(5, 150, 105, 0.1);
+}
