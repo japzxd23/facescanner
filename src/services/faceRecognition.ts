@@ -2,6 +2,8 @@ import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgl';
 import '@tensorflow/tfjs-backend-cpu';
 import * as faceDetection from '@tensorflow-models/face-detection';
+import { faceEmbeddingCache, CachedFaceEmbedding } from './faceEmbeddingCache';
+import { supabase } from './supabaseClient';
 
 export class FaceRecognitionService {
   private detector: faceDetection.FaceDetector | null = null;
@@ -398,7 +400,7 @@ export class FaceRecognitionService {
 
     // Check if we have keypoints (essential for face validation)
     const keypointCount = keypoints?.length || 0;
-    const minKeypoints = 4; // Reduced from 6 to 4 for low light conditions
+    const minKeypoints = 3; // Reduced to 3 for more lenient validation
 
     if (keypointCount < minKeypoints) {
       return {
@@ -418,8 +420,8 @@ export class FaceRecognitionService {
       const yRange = Math.max(...yCoords) - Math.min(...yCoords);
       const keypointSpread = Math.min(xRange / box.width, yRange / box.height);
 
-      // Face keypoints should spread across at least 30% of the detected box (reduced for low light)
-      if (keypointSpread < 0.3) {
+      // Face keypoints should spread across at least 20% of the detected box (very lenient)
+      if (keypointSpread < 0.2) {
         return {
           isValid: false,
           reason: `Keypoints too clustered (${Math.round(keypointSpread * 100)}%) - likely hand or object, not face`,
@@ -432,26 +434,29 @@ export class FaceRecognitionService {
       const centerY = yCoords.reduce((a, b) => a + b, 0) / yCoords.length;
 
       // Calculate how many keypoints are in different regions (eyes, nose, mouth areas)
-      // Make regions larger and more forgiving for low light conditions
-      const topRegion = keypoints.filter(kp => kp.y < centerY - box.height * 0.05).length;
-      const middleRegion = keypoints.filter(kp => Math.abs(kp.y - centerY) <= box.height * 0.2).length;
-      const bottomRegion = keypoints.filter(kp => kp.y > centerY + box.height * 0.05).length;
+      // Make regions much larger and more forgiving for real-world usage
+      const topRegion = keypoints.filter(kp => kp.y < centerY - box.height * 0.1).length;
+      const middleRegion = keypoints.filter(kp => Math.abs(kp.y - centerY) <= box.height * 0.4).length;
+      const bottomRegion = keypoints.filter(kp => kp.y > centerY + box.height * 0.1).length;
 
-      // For low light: only require at least 2 out of 3 regions to have keypoints
+      // More lenient: if we have a good number of keypoints in the middle region, that's acceptable
+      // Many face detectors cluster keypoints around eyes/nose area (middle region)
       const regionsWithKeypoints = (topRegion > 0 ? 1 : 0) + (middleRegion > 0 ? 1 : 0) + (bottomRegion > 0 ? 1 : 0);
-      if (regionsWithKeypoints < 2) {
+      const hasGoodMiddleConcentration = middleRegion >= Math.floor(keypointCount * 0.6); // 60% in middle is ok
+
+      if (regionsWithKeypoints < 2 && !hasGoodMiddleConcentration) {
         return {
           isValid: false,
-          reason: `Invalid keypoint distribution - need 2/3 regions (top:${topRegion}, mid:${middleRegion}, bot:${bottomRegion})`,
+          reason: `Invalid keypoint distribution - need 2/3 regions or 60%+ in middle (top:${topRegion}, mid:${middleRegion}, bot:${bottomRegion})`,
           score: 0.2
         };
       }
     }
 
-    // Check face size (optimized for mobile devices)
+    // Check face size (heavily optimized for mobile devices - phones/tablets)
     const faceWidth = box.width;
     const faceHeight = box.height;
-    const minFaceSize = 40; // Reduced from 60 to 40 for mobile cameras (phones/tablets)
+    const minFaceSize = 20; // Very small minimum for mobile cameras - allows distant faces
 
     if (faceWidth < minFaceSize || faceHeight < minFaceSize) {
       return {
@@ -500,13 +505,13 @@ export class FaceRecognitionService {
     const imageArea = imageWidth * imageHeight;
     const faceRatio = faceArea / imageArea;
 
-    // Mobile-optimized: Face should be between 2% and 60% of image area
-    // Phones: users often get very close (higher %), tablets: farther away (lower %)
-    if (faceRatio < 0.02 || faceRatio > 0.6) {
+    // Very mobile-friendly: Face can be between 0.5% and 80% of image area
+    // Allows very distant faces (0.5%) and very close faces (80%)
+    if (faceRatio < 0.005 || faceRatio > 0.8) {
       return {
         isValid: false,
-        reason: `Face size ratio unusual: ${(faceRatio * 100).toFixed(1)}% of image (should be 2-60% for mobile)`,
-        score: faceRatio < 0.02 ? faceRatio / 0.02 : 0.6 / faceRatio
+        reason: `Face size ratio unusual: ${(faceRatio * 100).toFixed(1)}% of image (should be 0.5-80% for mobile)`,
+        score: faceRatio < 0.005 ? faceRatio / 0.005 : 0.8 / faceRatio
       };
     }
 
@@ -519,11 +524,11 @@ export class FaceRecognitionService {
 
     const overallScore = (sizeScore + positionScore + keypointScore + aspectScore + areaScore) / 5;
 
-    // Accept lower quality faces for low light conditions
-    if (overallScore < 0.4) {
+    // Accept much lower quality faces for real-world conditions
+    if (overallScore < 0.25) {
       return {
         isValid: false,
-        reason: `Overall quality too low: ${Math.round(overallScore * 100)}% (need 40%+) - may not be a real face`,
+        reason: `Overall quality too low: ${Math.round(overallScore * 100)}% (need 25%+) - may not be a real face`,
         score: overallScore
       };
     }
@@ -653,9 +658,9 @@ export class FaceRecognitionService {
         // Use the enhanced face quality validation to ensure it's a real face
         const qualityCheck = this.validateFaceQuality(face, img.width, img.height);
 
-        // Mobile and low light optimized validation
-        // Face should take up at least 8% of the cropped image (lowered for mobile devices)
-        const hasGoodSize = faceRatio > 0.08;
+        // Very mobile-friendly validation
+        // Face should take up at least 2% of the cropped image (very lenient for mobile)
+        const hasGoodSize = faceRatio > 0.02;
         // Use quality check but with lowered requirements for mobile
         const hasGoodQuality = qualityCheck.isValid;
 
@@ -685,7 +690,7 @@ export class FaceRecognitionService {
   }
 
   // Enhanced face matching with adaptive thresholds and verification
-  async matchFace(faceEmbedding: number[], storedEmbeddings: { id: string; embedding: number[]; name: string; status: string }[], baseThreshold = 0.75) {
+  async matchFace(faceEmbedding: number[], storedEmbeddings: { id: string; embedding: number[]; name: string; status: string }[], baseThreshold = 0.91) {
     if (storedEmbeddings.length === 0) {
       console.log('🔍 No stored embeddings to match against');
       return null;
@@ -753,6 +758,125 @@ export class FaceRecognitionService {
     }
 
     return null; // No confident match found
+  }
+
+  // NEW: Load members from cache with fallback to Supabase
+  async loadMembersFromCache(organizationId: string): Promise<CachedFaceEmbedding[]> {
+    console.log(`📦 Loading face embeddings for organization: ${organizationId}`);
+
+    // Try to get from cache first
+    const cached = faceEmbeddingCache.getCachedEmbeddings(organizationId);
+    if (cached) {
+      console.log(`📦 Using cached embeddings: ${cached.length} faces`);
+      return cached;
+    }
+
+    // Cache miss - load from Supabase
+    console.log('📡 Cache miss - loading from Supabase...');
+    try {
+      const { data, error } = await supabase
+        .from('members')
+        .select('id, name, face_embedding, status, organization_id, updated_at')
+        .eq('organization_id', organizationId)
+        .not('face_embedding', 'is', null);
+
+      if (error) throw error;
+
+      const embeddings: CachedFaceEmbedding[] = (data || []).map(member => ({
+        id: member.id,
+        name: member.name,
+        embedding: member.face_embedding,
+        status: member.status,
+        organization_id: member.organization_id,
+        updated_at: member.updated_at
+      }));
+
+      // Cache the results
+      faceEmbeddingCache.setCachedEmbeddings(organizationId, embeddings);
+
+      console.log(`📡 Loaded ${embeddings.length} embeddings from Supabase and cached them`);
+      return embeddings;
+    } catch (error) {
+      console.error('Failed to load embeddings from Supabase:', error);
+      return [];
+    }
+  }
+
+  // NEW: Enhanced match face with caching
+  async matchFaceWithCache(faceEmbedding: number[], organizationId: string, baseThreshold = 0.91) {
+    const cachedEmbeddings = await this.loadMembersFromCache(organizationId);
+
+    if (cachedEmbeddings.length === 0) {
+      console.log('🔍 No cached embeddings available for matching');
+      return null;
+    }
+
+    // Convert cached embeddings to the format expected by existing matchFace method
+    const storedEmbeddings = cachedEmbeddings.map(cached => ({
+      id: cached.id,
+      embedding: cached.embedding,
+      name: cached.name,
+      status: cached.status
+    }));
+
+    return this.matchFace(faceEmbedding, storedEmbeddings, baseThreshold);
+  }
+
+  // NEW: Store face embedding with cache update
+  async storeFaceEmbeddingWithCache(memberId: string, embedding: number[], organizationId: string): Promise<void> {
+    try {
+      // Store in Supabase
+      const { error } = await supabase
+        .from('members')
+        .update({ face_embedding: embedding })
+        .eq('id', memberId);
+
+      if (error) throw error;
+
+      // Update cache
+      const { data: memberData } = await supabase
+        .from('members')
+        .select('*')
+        .eq('id', memberId)
+        .single();
+
+      if (memberData) {
+        const cachedEmbedding: CachedFaceEmbedding = {
+          id: memberData.id,
+          name: memberData.name,
+          embedding: memberData.face_embedding,
+          status: memberData.status,
+          organization_id: memberData.organization_id,
+          updated_at: memberData.updated_at
+        };
+
+        faceEmbeddingCache.addEmbedding(organizationId, cachedEmbedding);
+      }
+
+      console.log(`💾 Stored face embedding for member ${memberId} and updated cache`);
+    } catch (error) {
+      console.error('Failed to store face embedding with cache:', error);
+      throw error;
+    }
+  }
+
+  // NEW: Refresh cache manually
+  async refreshCache(organizationId: string): Promise<void> {
+    console.log(`🔄 Manually refreshing cache for organization ${organizationId}`);
+    faceEmbeddingCache.clearCache(organizationId);
+    await this.loadMembersFromCache(organizationId);
+  }
+
+  // NEW: Get cache statistics
+  getCacheStats(organizationId: string): { cached: boolean; count: number; age: number } {
+    const info = faceEmbeddingCache.getCacheInfo(organizationId);
+    const cached = faceEmbeddingCache.getCachedEmbeddings(organizationId);
+
+    return {
+      cached: !!cached,
+      count: cached?.length || 0,
+      age: info ? Math.round((Date.now() - info.lastUpdated) / (60 * 1000)) : 0
+    };
   }
 }
 

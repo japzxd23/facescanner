@@ -19,7 +19,7 @@ This is **MembershipScan** - a freemium SaaS face recognition system built with 
 - **TensorFlow.js** with WebGL backend - Face detection and processing
 - **MediaPipe Face Detector** - Primary face detection model
 - **Custom embedding system** - Face feature extraction using keypoints
-- **Cosine similarity matching** - Face recognition algorithm (threshold: 0.8)
+- **Cosine similarity matching** - Face recognition algorithm (threshold: 0.91)
 
 ### Backend & Data
 - **Supabase** - Backend-as-a-Service (auth, database, storage)
@@ -95,7 +95,7 @@ src/
 - `matchFace()` - Compare against stored embeddings
 
 ### Configuration
-- **Recognition threshold**: 0.8 similarity score
+- **Recognition threshold**: 0.91 similarity score
 - **Backend**: WebGL for GPU acceleration
 - **Model**: MediaPipe Face Detector (tfjs runtime)
 

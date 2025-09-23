@@ -33,6 +33,7 @@ import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CameraScanner from './pages/CameraScanner';
+
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import MemberManagement from './pages/MemberManagement';
@@ -66,6 +67,7 @@ const App: React.FC = () => (
         <Route exact path="/camera">
           <CameraScanner />
         </Route>
+
         <Route exact path="/scanner">
           <Redirect to="/camera" />
         </Route>

@@ -189,33 +189,54 @@ const DashboardPage: React.FC = () => {
   return (
     <IonPage>
       <IonHeader>
-        <IonToolbar style={{ '--background': '#1a1d29' }}>
-          <IonTitle style={{ color: '#e2e8f0' }}>
+        <IonToolbar style={{
+          '--background': 'var(--enterprise-surface-primary)',
+          '--color': 'var(--ion-text-color)',
+          '--border-color': 'var(--enterprise-border-subtle)',
+          borderBottom: '1px solid var(--enterprise-border-subtle)'
+        }}>
+          <IonTitle style={{
+            color: 'var(--ion-text-color)',
+            fontFamily: 'Inter, system-ui, sans-serif',
+            fontWeight: '600'
+          }}>
             {sessionData.organization.name}
           </IonTitle>
           <IonButton
             fill="clear"
             slot="end"
             onClick={handleLogout}
-            color="medium"
+            style={{ '--color': 'var(--ion-color-medium)' }}
           >
             <IonIcon icon={logOut} />
           </IonButton>
         </IonToolbar>
       </IonHeader>
 
-      <IonContent fullscreen style={{ '--background': '#0f1419' }}>
+      <IonContent fullscreen style={{ '--background': 'var(--enterprise-surface-secondary)' }}>
         <IonRefresher slot="fixed" onIonRefresh={refreshData}>
           <IonRefresherContent></IonRefresherContent>
         </IonRefresher>
 
-        <div style={{ padding: '20px' }}>
+        <div style={{ padding: '24px' }}>
           {/* Welcome Section */}
-          <div style={{ marginBottom: '24px' }}>
-            <h1 style={{ color: '#e2e8f0', margin: '0 0 8px 0', fontSize: '28px' }}>
+          <div style={{ marginBottom: '32px' }}>
+            <h1 style={{
+              color: 'var(--ion-text-color)',
+              margin: '0 0 8px 0',
+              fontSize: '32px',
+              fontWeight: '800',
+              fontFamily: 'Inter, system-ui, sans-serif',
+              letterSpacing: '-0.02em'
+            }}>
               Welcome back, {sessionData.user.full_name}
             </h1>
-            <p style={{ color: '#9ca3af', margin: '0 0 20px 0' }}>
+            <p style={{
+              color: 'var(--ion-color-medium)',
+              margin: '0 0 24px 0',
+              fontSize: '16px',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            }}>
               Here's your organization overview
             </p>
 
@@ -226,12 +247,15 @@ const DashboardPage: React.FC = () => {
               color="primary"
               onClick={goToScanner}
               style={{
-                '--padding-top': '16px',
-                '--padding-bottom': '16px',
-                '--border-radius': '12px',
+                '--padding-top': '20px',
+                '--padding-bottom': '20px',
+                '--border-radius': 'var(--enterprise-radius-lg)',
                 fontSize: '18px',
-                fontWeight: '600',
-                marginBottom: '20px'
+                fontWeight: '700',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                textTransform: 'none',
+                marginBottom: '24px',
+                boxShadow: 'var(--enterprise-shadow-lg)'
               }}
             >
               <IonIcon icon={scan} slot="start" style={{ fontSize: '24px' }} />
@@ -243,16 +267,36 @@ const DashboardPage: React.FC = () => {
           <IonGrid style={{ padding: 0 }}>
             <IonRow>
               <IonCol size="6">
-                <IonCard className="clean-card" style={{ margin: '8px' }}>
-                  <IonCardContent style={{ textAlign: 'center', padding: '20px' }}>
-                    <IonIcon icon={people} style={{ fontSize: '32px', color: '#3b82f6', marginBottom: '12px' }} />
-                    <h2 style={{ color: '#e2e8f0', margin: '0 0 4px 0', fontSize: '24px' }}>
+                <IonCard className="enterprise-card" style={{ margin: '8px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
+                    <IonIcon icon={people} style={{
+                      fontSize: '40px',
+                      color: 'var(--ion-color-primary)',
+                      marginBottom: '16px'
+                    }} />
+                    <h2 style={{
+                      color: 'var(--ion-text-color)',
+                      margin: '0 0 4px 0',
+                      fontSize: '28px',
+                      fontWeight: '800',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
                       {stats.totalMembers}
                     </h2>
-                    <p style={{ color: '#9ca3af', margin: 0, fontSize: '14px' }}>
+                    <p style={{
+                      color: 'var(--ion-color-medium)',
+                      margin: 0,
+                      fontSize: '14px',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
                       Total Members
                     </p>
-                    <p style={{ color: '#6b7280', margin: '4px 0 0 0', fontSize: '12px' }}>
+                    <p style={{
+                      color: 'var(--ion-color-medium)',
+                      margin: '4px 0 0 0',
+                      fontSize: '12px',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
                       Limit: {sessionData.organization.member_limit}
                     </p>
                   </IonCardContent>
@@ -260,16 +304,36 @@ const DashboardPage: React.FC = () => {
               </IonCol>
 
               <IonCol size="6">
-                <IonCard className="clean-card" style={{ margin: '8px' }}>
-                  <IonCardContent style={{ textAlign: 'center', padding: '20px' }}>
-                    <IonIcon icon={analytics} style={{ fontSize: '32px', color: '#059669', marginBottom: '12px' }} />
-                    <h2 style={{ color: '#e2e8f0', margin: '0 0 4px 0', fontSize: '24px' }}>
+                <IonCard className="enterprise-card" style={{ margin: '8px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
+                    <IonIcon icon={analytics} style={{
+                      fontSize: '40px',
+                      color: 'var(--ion-color-success)',
+                      marginBottom: '16px'
+                    }} />
+                    <h2 style={{
+                      color: 'var(--ion-text-color)',
+                      margin: '0 0 4px 0',
+                      fontSize: '28px',
+                      fontWeight: '800',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
                       {stats.todayScans}
                     </h2>
-                    <p style={{ color: '#9ca3af', margin: 0, fontSize: '14px' }}>
+                    <p style={{
+                      color: 'var(--ion-color-medium)',
+                      margin: 0,
+                      fontSize: '14px',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
                       Today's Scans
                     </p>
-                    <p style={{ color: '#6b7280', margin: '4px 0 0 0', fontSize: '12px' }}>
+                    <p style={{
+                      color: 'var(--ion-color-medium)',
+                      margin: '4px 0 0 0',
+                      fontSize: '12px',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
                       Total: {stats.totalScans}
                     </p>
                   </IonCardContent>
@@ -279,53 +343,132 @@ const DashboardPage: React.FC = () => {
           </IonGrid>
 
           {/* Organization Info */}
-          <IonCard className="clean-card">
+          <IonCard className="enterprise-card">
             <IonCardHeader>
-              <IonCardTitle style={{ color: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <IonCardTitle style={{
+                color: 'var(--ion-text-color)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                fontWeight: '700'
+              }}>
                 Organization Details
-                <IonBadge color={getPlanColor(sessionData.organization.plan_type)}>
+                <IonBadge
+                  color={getPlanColor(sessionData.organization.plan_type)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '16px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    fontFamily: 'Inter, system-ui, sans-serif'
+                  }}
+                >
                   {getPlanName(sessionData.organization.plan_type)}
                 </IonBadge>
               </IonCardTitle>
             </IonCardHeader>
-            <IonCardContent>
-              <IonItem style={{ '--background': 'transparent' }} lines="none">
-                <IonLabel>
-                  <h3 style={{ color: '#e2e8f0' }}>Subdomain</h3>
-                  <p style={{ color: '#9ca3af' }}>{sessionData.organization.subdomain}.membershipscan.com</p>
-                </IonLabel>
-              </IonItem>
+            <IonCardContent style={{ padding: '24px' }}>
+              <div style={{ marginBottom: '20px' }}>
+                <h3 style={{
+                  color: 'var(--ion-text-color)',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  margin: '0 0 8px 0',
+                  fontFamily: 'Inter, system-ui, sans-serif'
+                }}>
+                  Subdomain
+                </h3>
+                <p style={{
+                  color: 'var(--ion-color-medium)',
+                  margin: 0,
+                  fontFamily: 'Inter, system-ui, sans-serif'
+                }}>
+                  {sessionData.organization.subdomain}.membershipscan.com
+                </p>
+              </div>
 
-              <IonItem style={{ '--background': 'transparent' }} lines="none">
-                <IonLabel>
-                  <h3 style={{ color: '#e2e8f0' }}>API Key</h3>
-                  <p style={{ color: '#9ca3af', fontFamily: 'monospace', fontSize: '12px', wordBreak: 'break-all' }}>
-                    {sessionData.organization.api_key}
-                  </p>
-                </IonLabel>
-                <IonButton fill="clear" slot="end" onClick={copyApiKey}>
-                  <IonIcon icon={copy} color="primary" />
-                </IonButton>
-              </IonItem>
+              <div style={{
+                background: 'var(--enterprise-surface-tertiary)',
+                borderRadius: 'var(--enterprise-radius-lg)',
+                padding: '20px',
+                border: '1px solid var(--enterprise-border-subtle)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{
+                      color: 'var(--ion-text-color)',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      margin: '0 0 8px 0',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
+                      API Key
+                    </h3>
+                    <code style={{
+                      color: 'var(--ion-color-medium)',
+                      fontFamily: 'Monaco, monospace',
+                      fontSize: '13px',
+                      wordBreak: 'break-all',
+                      lineHeight: '1.4'
+                    }}>
+                      {sessionData.organization.api_key}
+                    </code>
+                  </div>
+                  <IonButton
+                    fill="clear"
+                    onClick={copyApiKey}
+                    style={{
+                      '--color': 'var(--ion-color-primary)',
+                      marginLeft: '16px'
+                    }}
+                  >
+                    <IonIcon icon={copy} />
+                  </IonButton>
+                </div>
+              </div>
             </IonCardContent>
           </IonCard>
 
           {/* Recent Members */}
           {recentMembers.length > 0 && (
-            <IonCard className="clean-card">
+            <IonCard className="enterprise-card">
               <IonCardHeader>
-                <IonCardTitle style={{ color: '#e2e8f0' }}>Recent Members</IonCardTitle>
+                <IonCardTitle style={{
+                  color: 'var(--ion-text-color)',
+                  fontFamily: 'Inter, system-ui, sans-serif',
+                  fontWeight: '700'
+                }}>
+                  Recent Members
+                </IonCardTitle>
               </IonCardHeader>
-              <IonCardContent>
+              <IonCardContent style={{ padding: '0' }}>
                 {recentMembers.map((member, index) => (
-                  <IonItem key={index} style={{ '--background': 'transparent' }} lines={index < recentMembers.length - 1 ? 'inset' : 'none'}>
+                  <IonItem
+                    key={index}
+                    style={{ '--background': 'transparent' }}
+                    lines={index < recentMembers.length - 1 ? 'inset' : 'none'}
+                  >
                     <IonLabel>
-                      <h3 style={{ color: '#e2e8f0' }}>{member.name}</h3>
-                      <p style={{ color: '#9ca3af' }}>
-                        Status: <span className={`status-${member.status}`}>{member.status}</span>
+                      <h3 style={{
+                        color: 'var(--ion-text-color)',
+                        fontFamily: 'Inter, system-ui, sans-serif',
+                        fontWeight: '600'
+                      }}>
+                        {member.name}
+                      </h3>
+                      <p style={{
+                        color: 'var(--ion-color-medium)',
+                        fontFamily: 'Inter, system-ui, sans-serif'
+                      }}>
+                        Status: <span className={`status-${member.status.toLowerCase()}`}>{member.status}</span>
                       </p>
                     </IonLabel>
-                    <IonText slot="end" style={{ color: '#6b7280', fontSize: '12px' }}>
+                    <IonText slot="end" style={{
+                      color: 'var(--ion-color-medium)',
+                      fontSize: '12px',
+                      fontFamily: 'Inter, system-ui, sans-serif'
+                    }}>
                       {new Date(member.created_at).toLocaleDateString()}
                     </IonText>
                   </IonItem>
@@ -335,11 +478,17 @@ const DashboardPage: React.FC = () => {
           )}
 
           {/* Quick Actions */}
-          <IonCard className="clean-card">
+          <IonCard className="enterprise-card">
             <IonCardHeader>
-              <IonCardTitle style={{ color: '#e2e8f0' }}>Quick Actions</IonCardTitle>
+              <IonCardTitle style={{
+                color: 'var(--ion-text-color)',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                fontWeight: '700'
+              }}>
+                Quick Actions
+              </IonCardTitle>
             </IonCardHeader>
-            <IonCardContent>
+            <IonCardContent style={{ padding: '24px' }}>
               <IonGrid style={{ padding: 0 }}>
                 <IonRow>
                   <IonCol size="6">
@@ -348,6 +497,12 @@ const DashboardPage: React.FC = () => {
                       fill="outline"
                       color="primary"
                       onClick={goToScanner}
+                      style={{
+                        '--border-radius': 'var(--enterprise-radius-md)',
+                        fontFamily: 'Inter, system-ui, sans-serif',
+                        fontWeight: '600',
+                        textTransform: 'none'
+                      }}
                     >
                       <IonIcon icon={scan} slot="start" />
                       Open Scanner
@@ -359,6 +514,12 @@ const DashboardPage: React.FC = () => {
                       fill="outline"
                       color="secondary"
                       onClick={() => history.push('/admin')}
+                      style={{
+                        '--border-radius': 'var(--enterprise-radius-md)',
+                        fontFamily: 'Inter, system-ui, sans-serif',
+                        fontWeight: '600',
+                        textTransform: 'none'
+                      }}
                     >
                       <IonIcon icon={settings} slot="start" />
                       Manage
@@ -370,29 +531,52 @@ const DashboardPage: React.FC = () => {
           </IonCard>
 
           {/* Usage Progress */}
-          <IonCard className="clean-card">
+          <IonCard className="enterprise-card">
             <IonCardHeader>
-              <IonCardTitle style={{ color: '#e2e8f0' }}>Usage</IonCardTitle>
+              <IonCardTitle style={{
+                color: 'var(--ion-text-color)',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                fontWeight: '700'
+              }}>
+                Usage
+              </IonCardTitle>
             </IonCardHeader>
-            <IonCardContent>
+            <IonCardContent style={{ padding: '24px' }}>
               <div style={{ marginBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ color: '#9ca3af', fontSize: '14px' }}>Members</span>
-                  <span style={{ color: '#e2e8f0', fontSize: '14px' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  marginBottom: '12px'
+                }}>
+                  <span style={{
+                    color: 'var(--ion-color-medium)',
+                    fontSize: '14px',
+                    fontFamily: 'Inter, system-ui, sans-serif'
+                  }}>
+                    Members
+                  </span>
+                  <span style={{
+                    color: 'var(--ion-text-color)',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    fontFamily: 'Inter, system-ui, sans-serif'
+                  }}>
                     {stats.totalMembers} / {sessionData.organization.member_limit}
                   </span>
                 </div>
                 <div style={{
                   width: '100%',
                   height: '8px',
-                  background: 'rgba(107, 114, 128, 0.3)',
+                  background: 'var(--enterprise-border-medium)',
                   borderRadius: '4px',
                   overflow: 'hidden'
                 }}>
                   <div style={{
-                    width: `${(stats.totalMembers / sessionData.organization.member_limit) * 100}%`,
+                    width: `${Math.min((stats.totalMembers / sessionData.organization.member_limit) * 100, 100)}%`,
                     height: '100%',
-                    background: stats.totalMembers >= sessionData.organization.member_limit ? '#dc2626' : '#3b82f6',
+                    background: stats.totalMembers >= sessionData.organization.member_limit
+                      ? 'var(--ion-color-danger)'
+                      : 'var(--ion-color-primary)',
                     borderRadius: '4px',
                     transition: 'width 0.3s ease'
                   }} />
@@ -403,11 +587,16 @@ const DashboardPage: React.FC = () => {
                 <div style={{
                   background: 'rgba(220, 38, 38, 0.1)',
                   border: '1px solid rgba(220, 38, 38, 0.3)',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  marginTop: '12px'
+                  borderRadius: 'var(--enterprise-radius-md)',
+                  padding: '16px',
+                  marginTop: '16px'
                 }}>
-                  <p style={{ color: '#fca5a5', fontSize: '14px', margin: 0 }}>
+                  <p style={{
+                    color: 'var(--ion-color-danger)',
+                    fontSize: '14px',
+                    margin: 0,
+                    fontFamily: 'Inter, system-ui, sans-serif'
+                  }}>
                     <strong>Member limit reached!</strong> Upgrade your plan to add more members.
                   </p>
                 </div>

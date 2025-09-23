@@ -2,21 +2,21 @@
 http://ionicframework.com/docs/theming/ */
 
 :root {
-  /* Primary colors - Enterprise dark theme */
-  --ion-color-primary: #1a1d29;
-  --ion-color-primary-rgb: 26, 29, 41;
-  --ion-color-primary-contrast: #3b82f6;
-  --ion-color-primary-contrast-rgb: 59, 130, 246;
-  --ion-color-primary-shade: #0f1419;
-  --ion-color-primary-tint: #2a2f3e;
+  /* Primary colors - Modern Enterprise Blue */
+  --ion-color-primary: #2563eb;
+  --ion-color-primary-rgb: 37, 99, 235;
+  --ion-color-primary-contrast: #ffffff;
+  --ion-color-primary-contrast-rgb: 255, 255, 255;
+  --ion-color-primary-shade: #1d4ed8;
+  --ion-color-primary-tint: #3b82f6;
 
-  /* Secondary colors - Professional accent */
-  --ion-color-secondary: #2a2f3e;
-  --ion-color-secondary-rgb: 42, 47, 62;
-  --ion-color-secondary-contrast: #e2e8f0;
-  --ion-color-secondary-contrast-rgb: 226, 232, 240;
-  --ion-color-secondary-shade: #1e2332;
-  --ion-color-secondary-tint: #3f4651;
+  /* Secondary colors - Sophisticated Gray */
+  --ion-color-secondary: #64748b;
+  --ion-color-secondary-rgb: 100, 116, 139;
+  --ion-color-secondary-contrast: #ffffff;
+  --ion-color-secondary-contrast-rgb: 255, 255, 255;
+  --ion-color-secondary-shade: #475569;
+  --ion-color-secondary-tint: #94a3b8;
 
   /* VIP Status - Elegant gold */
   --ion-color-tertiary: #f59e0b;
@@ -50,39 +50,112 @@ http://ionicframework.com/docs/theming/ */
   --ion-color-danger-shade: #b91c1c;
   --ion-color-danger-tint: #ef4444;
 
-  /* Background colors - Enterprise theme */
-  --ion-background-color: #0f1419;
-  --ion-background-color-rgb: 15, 20, 25;
+  /* Background colors - Clean Modern Light Theme */
+  --ion-background-color: #f8fafc;
+  --ion-background-color-rgb: 248, 250, 252;
 
-  --ion-text-color: #e2e8f0;
-  --ion-text-color-rgb: 226, 232, 240;
+  --ion-text-color: #0f172a;
+  --ion-text-color-rgb: 15, 23, 42;
 
-  --ion-color-step-50: #1a1d29;
-  --ion-color-step-100: #2a2f3e;
-  --ion-color-step-150: #3f4651;
-  --ion-color-step-200: #4b5563;
-  --ion-color-step-250: #6b7280;
-  --ion-color-step-300: #9ca3af;
-  --ion-color-step-350: #d1d5db;
-  --ion-color-step-400: #e5e7eb;
-  --ion-color-step-450: #f3f4f6;
-  --ion-color-step-500: #ffffff;
+  --ion-color-step-50: #ffffff;
+  --ion-color-step-100: #f8fafc;
+  --ion-color-step-150: #f1f5f9;
+  --ion-color-step-200: #e2e8f0;
+  --ion-color-step-250: #cbd5e1;
+  --ion-color-step-300: #94a3b8;
+  --ion-color-step-350: #64748b;
+  --ion-color-step-400: #475569;
+  --ion-color-step-450: #334155;
+  --ion-color-step-500: #0f172a;
 
-  /* Card and surface styling - Enterprise theme */
-  --ion-card-background: #1a1d29;
-  --ion-item-background: #1a1d29;
-  --ion-toolbar-background: rgba(26, 29, 41, 0.95);
-  --ion-tab-bar-background: #0f1419;
+  /* Card and surface styling - Modern Clean Theme */
+  --ion-card-background: #ffffff;
+  --ion-item-background: #ffffff;
+  --ion-toolbar-background: rgba(255, 255, 255, 0.98);
+  --ion-tab-bar-background: #ffffff;
+
+  /* Enterprise Design Tokens */
+  --enterprise-surface-primary: #ffffff;
+  --enterprise-surface-secondary: #f8fafc;
+  --enterprise-surface-tertiary: #f1f5f9;
+  --enterprise-border-subtle: #e2e8f0;
+  --enterprise-border-medium: #cbd5e1;
+  --enterprise-border-strong: #94a3b8;
+  --enterprise-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --enterprise-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --enterprise-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --enterprise-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --enterprise-radius-sm: 0.375rem;
+  --enterprise-radius-md: 0.5rem;
+  --enterprise-radius-lg: 0.75rem;
+  --enterprise-radius-xl: 1rem;
+  --enterprise-spacing-xs: 0.25rem;
+  --enterprise-spacing-sm: 0.5rem;
+  --enterprise-spacing-md: 1rem;
+  --enterprise-spacing-lg: 1.5rem;
+  --enterprise-spacing-xl: 2rem;
+  --enterprise-spacing-2xl: 3rem;
 }
 
 /* Global styles for enterprise design */
-.clean-card {
-  --background: #1a1d29;
-  --color: #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.1);
-  margin: 16px;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+.enterprise-card {
+  --background: var(--enterprise-surface-primary);
+  --color: var(--ion-text-color);
+  border-radius: var(--enterprise-radius-lg);
+  box-shadow: var(--enterprise-shadow-md);
+  margin: var(--enterprise-spacing-md);
+  border: 1px solid var(--enterprise-border-subtle);
+  transition: all 0.2s ease-in-out;
+}
+
+.enterprise-card:hover {
+  box-shadow: var(--enterprise-shadow-lg);
+  border-color: var(--enterprise-border-medium);
+}
+
+.enterprise-button-primary {
+  --background: var(--ion-color-primary);
+  --color: white;
+  --border-radius: var(--enterprise-radius-md);
+  --padding-start: var(--enterprise-spacing-lg);
+  --padding-end: var(--enterprise-spacing-lg);
+  --padding-top: var(--enterprise-spacing-sm);
+  --padding-bottom: var(--enterprise-spacing-sm);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.025em;
+  transition: all 0.15s ease-in-out;
+}
+
+.enterprise-button-secondary {
+  --background: transparent;
+  --color: var(--ion-color-primary);
+  --border-radius: var(--enterprise-radius-md);
+  --padding-start: var(--enterprise-spacing-lg);
+  --padding-end: var(--enterprise-spacing-lg);
+  border: 1px solid var(--ion-color-primary);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.025em;
+  transition: all 0.15s ease-in-out;
+}
+
+.enterprise-input {
+  --background: var(--enterprise-surface-primary);
+  --color: var(--ion-text-color);
+  --border-color: var(--enterprise-border-medium);
+  --border-radius: var(--enterprise-radius-md);
+  --padding-start: var(--enterprise-spacing-md);
+  --padding-end: var(--enterprise-spacing-md);
+  --padding-top: var(--enterprise-spacing-sm);
+  --padding-bottom: var(--enterprise-spacing-sm);
+  border: 1px solid var(--enterprise-border-medium);
+  transition: border-color 0.15s ease-in-out;
+}
+
+.enterprise-input:focus-within {
+  --border-color: var(--ion-color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .status-allowed {
@@ -106,15 +179,15 @@ http://ionicframework.com/docs/theming/ */
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 1000;
-  background: rgba(26, 29, 41, 0.95);
+  background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(15px);
-  padding: 32px;
-  border-radius: 16px;
-  box-shadow: 0 12px 48px rgba(59, 130, 246, 0.2);
+  padding: var(--enterprise-spacing-2xl);
+  border-radius: var(--enterprise-radius-xl);
+  box-shadow: var(--enterprise-shadow-xl);
   text-align: center;
   min-width: 380px;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  color: #e2e8f0;
+  border: 1px solid var(--enterprise-border-subtle);
+  color: var(--ion-text-color);
 }
 
 .admin-card {
@@ -370,19 +443,19 @@ http://ionicframework.com/docs/theming/ */
 /* Distance feedback - Enterprise style */
 .distance-indicator {
   position: absolute;
-  top: 24px;
-  right: 24px;
-  background: rgba(26, 29, 41, 0.9);
+  top: var(--enterprise-spacing-lg);
+  right: var(--enterprise-spacing-lg);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
-  padding: 16px;
-  border-radius: 12px;
-  color: #e2e8f0;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  padding: var(--enterprise-spacing-md);
+  border-radius: var(--enterprise-radius-lg);
+  color: var(--ion-text-color);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
   font-size: 13px;
   font-weight: 500;
   z-index: 20;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.1);
+  border: 1px solid var(--enterprise-border-subtle);
+  box-shadow: var(--enterprise-shadow-md);
 }
 
 .distance-indicator.too-far {
