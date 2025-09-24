@@ -137,8 +137,8 @@ const LoginPage: React.FC = () => {
 
       localStorage.setItem('membershipScanSession', JSON.stringify(sessionData));
 
-      // Redirect to admin
-      history.push('/admin');
+      // Force full page refresh to clear cached state and ensure buttons work
+      window.location.href = '/admin';
 
     } catch (error: any) {
       console.error('Login error:', error);
@@ -190,7 +190,7 @@ const LoginPage: React.FC = () => {
       };
 
       localStorage.setItem('membershipScanSession', JSON.stringify(sessionData));
-      history.push('/admin');
+      window.location.href = '/admin';
 
     } catch (error: any) {
       console.error('Demo login error:', error);
@@ -333,11 +333,12 @@ const LoginPage: React.FC = () => {
                         onIonInput={(e) => handleInputChange('email', e.detail.value!)}
                         placeholder="Enter your email"
                         style={{
-                        
+                          '--color': '#1f2937',
                           '--placeholder-color': 'var(--ion-color-medium)',
                           '--padding-start': '0',
                           '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif'
+                          fontFamily: 'Inter, system-ui, sans-serif',
+                          color: '#1f2937'
                         }}
                       />
                     </div>
@@ -378,12 +379,13 @@ const LoginPage: React.FC = () => {
                           onIonInput={(e) => handleInputChange('password', e.detail.value!)}
                           placeholder="Enter your password"
                           style={{
-                    
+                            '--color': '#1f2937',
                             '--placeholder-color': 'var(--ion-color-medium)',
                             '--padding-start': '0',
                             '--padding-end': '0',
                             fontFamily: 'Inter, system-ui, sans-serif',
-                            flex: 1
+                            flex: 1,
+                            color: '#1f2937'
                           }}
                         />
                         <IonButton

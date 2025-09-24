@@ -930,7 +930,7 @@ const CameraScanner: React.FC = () => {
       setEmbeddingDebug(prev => ({
         ...prev,
         currentEmbeddingLength: embedding.length,
-        currentValidityPercent: qualityScore * 100
+        currentValidityPercent: qualityScore * 82
       }));
 
       // Update best quality face

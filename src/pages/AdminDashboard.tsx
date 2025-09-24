@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   IonContent,
   IonHeader,
@@ -35,9 +35,12 @@ const AdminDashboard: React.FC = () => {
   const [showAlert, setShowAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
   const [alertHeader, setAlertHeader] = useState('');
+  const [componentKey, setComponentKey] = useState(Date.now());
 
   useEffect(() => {
     checkAuthAndLoadData();
+    // Force component refresh after navigation
+    setComponentKey(Date.now());
   }, [history]);
 
   const checkAuthAndLoadData = () => {
@@ -110,20 +113,35 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const navigateToMembers = () => {
-    history.push('/admin/members');
-  };
+  const navigateToMembers = useCallback(() => {
+    console.log('Navigating to members...');
+    try {
+      history.push('/admin/members');
+    } catch (error) {
+      console.error('Navigation error:', error);
+    }
+  }, [history]);
 
-  const navigateToLogs = () => {
-    history.push('/admin/logs');
-  };
+  const navigateToLogs = useCallback(() => {
+    console.log('Navigating to logs...');
+    try {
+      history.push('/admin/logs');
+    } catch (error) {
+      console.error('Navigation error:', error);
+    }
+  }, [history]);
 
-  const navigateToCamera = () => {
-    history.push('/camera');
-  };
+  const navigateToCamera = useCallback(() => {
+    console.log('Navigating to camera...');
+    try {
+      history.push('/camera');
+    } catch (error) {
+      console.error('Navigation error:', error);
+    }
+  }, [history]);
 
   return (
-    <IonPage>
+    <IonPage key={componentKey}>
       <IonHeader>
         <IonToolbar style={{
           '--background': 'var(--enterprise-surface-primary)',

@@ -555,11 +555,12 @@ const SignupPage: React.FC = () => {
                         onIonInput={(e) => handleInputChange('fullName', e.detail.value!)}
                         placeholder="Enter your full name"
                         style={{
-                          '--color': 'var(--ion-text-color)',
+                          '--color': '#1f2937',
                           '--placeholder-color': 'var(--ion-color-medium)',
                           '--padding-start': '0',
                           '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif'
+                          fontFamily: 'Inter, system-ui, sans-serif',
+                          color: '#1f2937'
                         }}
                       />
                     </div>
@@ -599,11 +600,12 @@ const SignupPage: React.FC = () => {
                         onIonInput={(e) => handleInputChange('email', e.detail.value!)}
                         placeholder="Enter your email"
                         style={{
-                          '--color': 'var(--ion-text-color)',
+                          '--color': '#1f2937',
                           '--placeholder-color': 'var(--ion-color-medium)',
                           '--padding-start': '0',
                           '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif'
+                          fontFamily: 'Inter, system-ui, sans-serif',
+                          color: '#1f2937'
                         }}
                       />
                     </div>
@@ -644,12 +646,13 @@ const SignupPage: React.FC = () => {
                           onIonInput={(e) => handleInputChange('password', e.detail.value!)}
                           placeholder="Create a secure password (min 8 characters)"
                           style={{
-                            '--color': 'var(--ion-text-color)',
+                            '--color': '#1f2937',
                             '--placeholder-color': 'var(--ion-color-medium)',
                             '--padding-start': '0',
                             '--padding-end': '0',
                             fontFamily: 'Inter, system-ui, sans-serif',
-                            flex: 1
+                            flex: 1,
+                            color: '#1f2937'
                           }}
                         />
                         <IonButton
@@ -699,12 +702,13 @@ const SignupPage: React.FC = () => {
                           onIonInput={(e) => handleInputChange('confirmPassword', e.detail.value!)}
                           placeholder="Confirm your password"
                           style={{
-                            '--color': 'var(--ion-text-color)',
+                            '--color': '#1f2937',
                             '--placeholder-color': 'var(--ion-color-medium)',
                             '--padding-start': '0',
                             '--padding-end': '0',
                             fontFamily: 'Inter, system-ui, sans-serif',
-                            flex: 1
+                            flex: 1,
+                            color: '#1f2937'
                           }}
                         />
                         <IonButton
@@ -752,11 +756,12 @@ const SignupPage: React.FC = () => {
                         onIonInput={(e) => handleInputChange('organizationName', e.detail.value!)}
                         placeholder="Your company or organization"
                         style={{
-                          '--color': 'var(--ion-text-color)',
+                          '--color': '#1f2937',
                           '--placeholder-color': 'var(--ion-color-medium)',
                           '--padding-start': '0',
                           '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif'
+                          fontFamily: 'Inter, system-ui, sans-serif',
+                          color: '#1f2937'
                         }}
                       />
                     </div>
@@ -795,11 +800,12 @@ const SignupPage: React.FC = () => {
                         onIonInput={(e) => handleInputChange('subdomain', e.detail.value!)}
                         placeholder="yourcompany"
                         style={{
-                          '--color': 'var(--ion-text-color)',
+                          '--color': '#1f2937',
                           '--placeholder-color': 'var(--ion-color-medium)',
                           '--padding-start': '0',
                           '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif'
+                          fontFamily: 'Inter, system-ui, sans-serif',
+                          color: '#1f2937'
                         }}
                       />
                       <div style={{

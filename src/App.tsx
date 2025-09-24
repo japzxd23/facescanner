@@ -42,7 +42,11 @@ import AttendanceLogs from './pages/AttendanceLogs';
 /* Contexts */
 import { OrganizationProvider } from './contexts/OrganizationContext';
 
-setupIonicReact();
+setupIonicReact({
+  rippleEffect: true,
+  mode: 'md',
+  innerHTMLTemplatesEnabled: true
+});
 
 const App: React.FC = () => (
   <IonApp>
