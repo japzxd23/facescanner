@@ -18,6 +18,7 @@ import {
   IonIcon,
   IonRange,
   IonPopover,
+  IonToggle,
 } from '@ionic/react';
 import { refreshOutline, settingsOutline, speedometerOutline } from 'ionicons/icons';
 import { Capacitor } from '@capacitor/core';
@@ -30,6 +31,7 @@ import { simpleLocalStorage } from '../services/simpleLocalStorage';
 import { imageStorage } from '../services/imageStorage';
 import { attendanceCooldown } from '../services/attendanceCooldown';
 import * as faceapi from 'face-api.js';
+import UnifiedMatchingDialog from '../components/UnifiedMatchingDialog';
 
 interface LocalFaceData {
   id: string;
@@ -51,10 +53,14 @@ interface LocalCacheEntry {
   status?: 'Allowed' | 'Banned' | 'VIP'; // Member status from database
 }
 
+// Auto-scan constants
+const SCAN_COOLDOWN_MS = 5000; // 5 seconds between scans
+
 const SimpleFaceScanner: React.FC = () => {
   const { organization, isLegacyMode } = useOrganization();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const processingLockRef = useRef<boolean>(false); // Immediate synchronous lock to prevent flooding
   const [isScanning, setIsScanning] = useState(false);
   const [knownFaces, setKnownFaces] = useState<LocalFaceData[]>([]);
   // Processing state machine to prevent race conditions
@@ -64,9 +70,10 @@ const SimpleFaceScanner: React.FC = () => {
   const [detectedPerson, setDetectedPerson] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>('Ready');
-  const [autoCapture, setAutoCapture] = useState(false);
+  const [autoScanEnabled, setAutoScanEnabled] = useState(true); // Auto-scan ON by default
   const [faceQuality, setFaceQuality] = useState<number>(0);
   const [qualityStatus, setQualityStatus] = useState<string>('No face detected');
+  const [lastScanTime, setLastScanTime] = useState<number>(0);
   // Removed captureCountdown - immediate capture instead
   const [detectedFaces, setDetectedFaces] = useState<any[]>([]);
   const [faceDetector, setFaceDetector] = useState<any>(null);
@@ -78,15 +85,15 @@ const SimpleFaceScanner: React.FC = () => {
   const [isCaptureMode, setIsCaptureMode] = useState(false);
   const [dialogCountdown, setDialogCountdown] = useState<number>(0);
   const [faceQualityThreshold, setFaceQualityThreshold] = useState<number>(() => {
-    // Load from localStorage or default to 95
+    // Load from localStorage or default to 85
     try {
       const saved = localStorage.getItem('faceQualityThreshold');
-      const value = saved ? parseInt(saved, 10) : 95;
+      const value = saved ? parseInt(saved, 10) : 85;
       console.log('📐 Loaded face quality threshold:', value);
       return value;
     } catch (error) {
       console.error('Failed to load face quality threshold from localStorage:', error);
-      return 95;
+      return 85;
     }
   });
   const [showQualitySettings, setShowQualitySettings] = useState<boolean>(false);
@@ -103,6 +110,10 @@ const SimpleFaceScanner: React.FC = () => {
     allMatches: Array<{member: Member, similarity: number}>;
     threshold: number;
   } | null>(null);
+
+  // New unified dialog states
+  const [showUnifiedDialog, setShowUnifiedDialog] = useState(false);
+  const [dialogState, setDialogState] = useState<'searching' | 'result'>('searching');
   const [localFaceCache, setLocalFaceCache] = useState<LocalCacheEntry[]>(() => {
     // Initialize from localStorage if available
     try {
@@ -148,11 +159,12 @@ const SimpleFaceScanner: React.FC = () => {
 
   // Auto-close matching dialog based on member status with countdown + Auto-attendance with cooldown
   useEffect(() => {
-    if (showMatchingDialog && matchingResults?.bestMatch) {
+    // Use unified dialog state instead of old dialog
+    if (showUnifiedDialog && dialogState === 'result' && matchingResults?.bestMatch) {
       const member = matchingResults.bestMatch;
       const memberStatus = member.status;
-      let closeDelay = memberStatus === 'Banned' ? 5000 : 3000; // 5s for banned, 3s for allowed/VIP
-      let secondsLeft = Math.ceil(closeDelay / 1000);
+      let closeDelay = memberStatus === 'Banned' ? null : 3000; // null for banned (manual only), 3s for allowed/VIP
+      let secondsLeft = closeDelay ? Math.ceil(closeDelay / 1000) : 0;
 
       setDialogCountdown(secondsLeft);
 
@@ -167,7 +179,7 @@ const SimpleFaceScanner: React.FC = () => {
           // Auto-trigger attendance after 1 second delay (let user see the dialog)
           setTimeout(async () => {
             try {
-              await logAttendance();
+              await logAttendance(member, matchingResults.bestSimilarity);
               console.log('✅ Attendance automatically logged for', member.name);
 
               // Record cooldown
@@ -190,37 +202,56 @@ const SimpleFaceScanner: React.FC = () => {
         setCooldownMessage('Access denied - Member is banned');
       }
 
-      console.log(`⏱️ Auto-closing dialog in ${secondsLeft}s for ${memberStatus} member`);
+      // Only set up auto-close for Allowed/VIP members (not Banned)
+      if (closeDelay !== null) {
+        console.log(`⏱️ Auto-closing dialog in ${secondsLeft}s for ${memberStatus} member`);
 
-      // Update countdown every second
-      const countdownInterval = setInterval(() => {
-        secondsLeft--;
-        setDialogCountdown(secondsLeft);
+        // Update countdown every second
+        const countdownInterval = setInterval(() => {
+          secondsLeft--;
+          setDialogCountdown(secondsLeft);
 
-        if (secondsLeft <= 0) {
+          if (secondsLeft <= 0) {
+            clearInterval(countdownInterval);
+          }
+        }, 1000);
+
+        // Close dialog after full delay
+        const closeTimeout = setTimeout(() => {
+          console.log('🔄 Auto-closing unified dialog');
+          // Use the unified dialog close handler which does everything
+          closeUnifiedDialog();
+        }, closeDelay);
+
+        return () => {
           clearInterval(countdownInterval);
-        }
-      }, 1000);
-
-      // Close dialog after full delay
-      const closeTimeout = setTimeout(() => {
-        console.log('🔄 Auto-closing matching dialog');
-        setShowMatchingDialog(false);
-        setMatchingResults(null);
-        setDialogCountdown(0);
-        setCooldownMessage('');
-        resetProcessingState();
-      }, closeDelay);
-
-      return () => {
-        clearInterval(countdownInterval);
-        clearTimeout(closeTimeout);
-      };
+          clearTimeout(closeTimeout);
+        };
+      } else {
+        // Banned member - no auto-close, manual only
+        console.log('🚫 Banned member - Manual close required');
+      }
     } else {
       setDialogCountdown(0);
       setCooldownMessage('');
     }
-  }, [showMatchingDialog, matchingResults]);
+  }, [showUnifiedDialog, dialogState, matchingResults]);
+
+  // Clear face detection overlays when dialog opens AND closes
+  useEffect(() => {
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+      setDetectedFaces([]);
+      if (showUnifiedDialog) {
+        console.log('🧹 Cleared face detection overlays (unified dialog opened)');
+      } else {
+        console.log('🧹 Cleared face detection overlays (unified dialog closed)');
+      }
+    }
+  }, [showUnifiedDialog]);
 
   // Manual dialog states (kept for debugging)
   const [showAnalysisDialog, setShowAnalysisDialog] = useState<boolean>(false);
@@ -246,7 +277,8 @@ const SimpleFaceScanner: React.FC = () => {
   // Load member photo for dialog display
   useEffect(() => {
     const loadDialogPhoto = async () => {
-      if (!showMatchingDialog || !matchingResults?.bestMatch) {
+      // Load photo when unified dialog shows result state with a match
+      if (!showUnifiedDialog || dialogState !== 'result' || !matchingResults?.bestMatch) {
         setDialogMemberPhoto(null);
         return;
       }
@@ -289,7 +321,7 @@ const SimpleFaceScanner: React.FC = () => {
     };
 
     loadDialogPhoto();
-  }, [showMatchingDialog, matchingResults]);
+  }, [showUnifiedDialog, dialogState, matchingResults]);
 
   // Toast states for automated feedback
   const [showToast, setShowToast] = useState<boolean>(false);
@@ -499,7 +531,8 @@ const SimpleFaceScanner: React.FC = () => {
           Promise.all([
             faceapi.nets.ssdMobilenetv1.loadFromUri(modelUrl),
             faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl),
-            faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl)
+            faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl),
+            faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl) // For real-time video detection
           ]),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Model loading timeout')), 30000))
         ]);
@@ -871,9 +904,46 @@ const SimpleFaceScanner: React.FC = () => {
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // No automatic face detection - only show camera feed
-      const faces: any[] = [];
-      setDetectedFaces([]);
+      // CRITICAL: Skip face detection if any dialog is open
+      let faces: any[] = [];
+      if (showMatchingDialog || showRegistrationPrompt || showAnalysisDialog || showUnifiedDialog) {
+        // Dialog is open - skip detection to save CPU and prevent stale data
+        faces = [];
+        setDetectedFaces([]);
+      } else {
+        // Perform face detection using face-api.js (works on all devices!)
+        try {
+          // Use TinyFaceDetector for fast real-time detection
+          const detections = await faceapi
+            .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({
+              inputSize: 224, // Smaller = faster, larger = more accurate
+              scoreThreshold: 0.5 // Confidence threshold
+            }))
+            .withFaceLandmarks();
+
+          // Convert face-api.js format to our format
+          faces = detections.map(d => ({
+            boundingBox: {
+              x: d.detection.box.x,
+              y: d.detection.box.y,
+              width: d.detection.box.width,
+              height: d.detection.box.height
+            },
+            landmarks: d.landmarks,
+            score: d.detection.score
+          }));
+
+          setDetectedFaces(faces);
+
+          if (faces.length > 0) {
+            console.log(`👤 Detected ${faces.length} face(s) with face-api.js (score: ${faces[0].score.toFixed(2)})`);
+          }
+        } catch (error) {
+          console.warn('face-api.js detection failed:', error);
+          faces = [];
+          setDetectedFaces([]);
+        }
+      }
 
       // Analyze face quality
       let quality = { score: 0, status: 'No face detected' };
@@ -885,12 +955,17 @@ const SimpleFaceScanner: React.FC = () => {
       }
 
       setFaceQuality(quality.score);
-      setQualityStatus(quality.status);
+      // Note: qualityStatus is set by auto-scan logic below, not here
+      // This prevents overwriting "Ready to scan (X/3)" messages
 
       // Draw dynamic bounding boxes for detected faces
       ctx.save();
 
-      if (faces.length > 0) {
+      // CRITICAL: Don't draw bounding boxes if dialog is open
+      if (showMatchingDialog || showRegistrationPrompt || showAnalysisDialog || showUnifiedDialog) {
+        // Dialog open - skip drawing, canvas will be cleared by useEffect
+        // This prevents stale bounding boxes from appearing
+      } else if (faces.length > 0) {
         faces.forEach((face, index) => {
           const bounds = face.boundingBox || face;
 
@@ -1097,7 +1172,8 @@ const SimpleFaceScanner: React.FC = () => {
       const isDialogOpen = showAnalysisDialog;
 
       // IMMEDIATE STOP: If any processing is happening, don't even consider capturing
-      if (processingLock || processingState !== 'idle' || isDialogOpen) {
+      // CRITICAL: Check immediate ref lock FIRST (synchronous check before async state)
+      if (processingLockRef.current || processingLock || processingState !== 'idle' || isDialogOpen) {
         // System is busy - don't capture
         if (quality.score > 78) {
           setQualityStatus('Processing in progress - please wait...');
@@ -1105,43 +1181,77 @@ const SimpleFaceScanner: React.FC = () => {
         return; // Exit early to prevent any capture attempts
       }
 
-      // Removed automatic capture - only manual capture now
-      if (false) {
-        console.log('🔍 Basic conditions met, checking for recent similar captures...');
+      // 🤖 AUTO-SCAN LOGIC - Trigger on face detection + quality threshold
+      // Debug logging
+      console.log('🔍 Trigger check:', {
+        autoScan: autoScanEnabled,
+        quality: quality.score,
+        threshold: faceQualityThreshold,
+        faces: faces.length,
+        willTrigger: autoScanEnabled && faces.length > 0 && quality.score >= faceQualityThreshold
+      });
 
-        // Set processing lock IMMEDIATELY to prevent race conditions
-        setProcessingLock(true);
-        setProcessingState('capturing');
+      if (autoScanEnabled && faces.length > 0 && quality.score >= faceQualityThreshold) {
 
-        // CRITICAL: Capture frame IMMEDIATELY while user is still at 79% position
-        console.log('📸 IMMEDIATE CAPTURE: Freezing frame at exact 79% moment...');
-        const immediateCapture = await captureCurrentFrameImmediately();
-
-        if (!immediateCapture) {
-          console.error('❌ IMMEDIATE CAPTURE FAILED - aborting');
-          setProcessingLock(false);
-          setProcessingState('idle');
+        // 🔒 CHECK 1: Processing lock
+        if (processingLock) {
+          setQualityStatus('Processing - Please wait...');
           return;
         }
 
-        console.log('✅ IMMEDIATE CAPTURE SUCCESS - Frame frozen from 79% position');
-        setCapturedImage(immediateCapture); // Store the captured frame immediately
-
-        // Now do the async check
-        const hasRecentSimilarCapture = await checkForRecentSimilarCapture();
-
-        if (!hasRecentSimilarCapture) {
-          console.log('🚀 All conditions met - STARTING MANUAL ANALYSIS');
-          console.log('📈 Quality Score:', quality.score, '%');
-          // Pass the pre-captured image to avoid recapturing
-          handleManualFaceProcessingWithImage(quality.score, immediateCapture);
-        } else {
-          console.log('🚫 Recent similar capture detected - releasing lock and skipping');
-          // Release lock if we skip due to similar capture
-          setProcessingLock(false);
-          setProcessingState('idle');
+        // 🔒 CHECK 2: Processing state
+        if (processingState !== 'idle') {
+          setQualityStatus('Busy - Please wait...');
+          return;
         }
-      } else if (isDialogOpen) {
+
+        // 🔒 CHECK 3: Scan cooldown (prevents duplicate scans)
+        const timeSinceLastScan = Date.now() - lastScanTime;
+        if (timeSinceLastScan < SCAN_COOLDOWN_MS) {
+          const remaining = Math.ceil((SCAN_COOLDOWN_MS - timeSinceLastScan) / 1000);
+          setQualityStatus(`Cooldown - Wait ${remaining}s`);
+          return;
+        }
+
+        // 🔒 CHECK 4: Dialog state
+        if (showMatchingDialog || showRegistrationPrompt || showUnifiedDialog) {
+          setQualityStatus('Dialog open - Paused');
+          return;
+        }
+
+        // ✅ ALL CHECKS PASSED - TRIGGER IMMEDIATELY!
+        console.log('🚀 AUTO-SCAN TRIGGERED - Face detected with good quality!');
+        console.log(`📊 Quality: ${quality.score}%, Faces detected: ${faces.length}`);
+
+        const now = Date.now();
+
+        // SET IMMEDIATE REF LOCK FIRST (synchronous - prevents next frame from triggering)
+        processingLockRef.current = true;
+        console.log('🔒 Immediate ref lock set - next frames blocked');
+
+        // Then set state locks (async - for UI updates)
+        setProcessingLock(true);
+        setProcessingState('capturing');
+        setLastScanTime(now);
+
+        // Show feedback
+        setQualityStatus('✅ Face detected - Scanning now!');
+
+        // Trigger the auto-scan
+        handleAutoCapture();
+
+      } else {
+        // Show appropriate status when not triggering
+        if (autoScanEnabled) {
+          if (faces.length === 0) {
+            setQualityStatus('Scanning for face...');
+          } else if (quality.score < faceQualityThreshold) {
+            setQualityStatus(quality.status); // Show quality feedback
+          }
+        }
+      }
+
+      if (isDialogOpen) {
         // Dialog is open - pause processing
         setQualityStatus('Dialog open - camera paused');
       } else if (!canCaptureAgain) {
@@ -1819,6 +1929,79 @@ const SimpleFaceScanner: React.FC = () => {
     }
   };
 
+  // Auto capture function (triggered by auto-scan system)
+  const handleAutoCapture = async () => {
+    try {
+      console.log('🤖 AUTO-SCAN: Starting automatic face capture...');
+
+      // Double-check locks (paranoid safety check)
+      if (processingLock && processingState !== 'capturing') {
+        console.error('❌ AUTO-SCAN: Lock check failed - aborting');
+        return;
+      }
+
+      if (!videoRef.current || !canvasRef.current) {
+        console.error('❌ AUTO-SCAN: Video/canvas not available');
+        return;
+      }
+
+      // CRITICAL: Stop scanner immediately to freeze frame
+      setIsScanning(false);
+      console.log('⏸️ Scanner stopped for matching process');
+
+      // Capture the current frame
+      const video = videoRef.current;
+      const tempCanvas = document.createElement('canvas');
+      const ctx = tempCanvas.getContext('2d');
+
+      if (!ctx) {
+        console.error('❌ AUTO-SCAN: Could not get canvas context');
+        return;
+      }
+
+      tempCanvas.width = video.videoWidth;
+      tempCanvas.height = video.videoHeight;
+
+      // Mirror the captured image horizontally for natural selfie view
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
+      ctx.restore();
+
+      // Get base64 image
+      const capturedImageData = tempCanvas.toDataURL('image/jpeg', 0.8);
+      setCapturedFaceImage(capturedImageData);
+
+      console.log('✅ AUTO-SCAN: Frame captured, showing unified dialog...');
+
+      // Show unified dialog in searching state IMMEDIATELY
+      setShowUnifiedDialog(true);
+      setDialogState('searching');
+
+      setSystemStatus('Matching face with database...');
+      setProcessingState('matching');
+
+      // Perform face matching
+      await fetchAndMatchMembers(capturedImageData);
+
+      // Show result
+      setDialogState('result');
+      console.log('✅ AUTO-SCAN: Showing match results');
+
+    } catch (error) {
+      console.error('❌ AUTO-SCAN: Failed:', error);
+
+      // Close dialog and restart
+      closeUnifiedDialog();
+
+      // Show error toast
+      setShowToast(true);
+      setToastMessage('Auto-scan failed. Please try again.');
+      setToastColor('danger');
+      setToastIcon('❌');
+    }
+  };
+
   // Manual capture function
   const handleManualCapture = async () => {
     if (!videoRef.current || !canvasRef.current || processingLock) {
@@ -1867,6 +2050,7 @@ const SimpleFaceScanner: React.FC = () => {
       setToastIcon('❌');
     } finally {
       setIsCaptureMode(false);
+      processingLockRef.current = false; // Release immediate ref lock
       setProcessingLock(false);
     }
   };
@@ -2071,8 +2255,9 @@ const SimpleFaceScanner: React.FC = () => {
       threshold: matchThreshold
     });
 
-    // Show matching dialog
-    setShowMatchingDialog(true);
+    // NOTE: Dialog is already shown by handleAutoCapture in unified dialog
+    // Old dialog disabled in favor of unified dialog
+    // setShowMatchingDialog(true);
 
     // Play warning sound if banned member is detected
     if (bestMatch && bestMatch.status === 'Banned') {
@@ -2411,8 +2596,55 @@ const SimpleFaceScanner: React.FC = () => {
       setShowRegistrationPrompt(false);
       setCapturedFaceImage('');
       setNewMemberName('');
-      setTimeout(() => setSystemStatus('Ready to capture'), 3000);
+
+      // CRITICAL: Release all locks after registration
+      processingLockRef.current = false; // Release immediate ref lock
+      setProcessingLock(false);
+      setProcessingState('idle');
+      setLastScanTime(0); // Reset scan cooldown
+      console.log('🔓 AUTO-SCAN: Locks released after registration');
+
+      // CRITICAL: Restart detection loop
+      console.log('🔄 Restarting auto-scan detection after registration...');
+      setTimeout(() => {
+        setSystemStatus('Ready to capture');
+        if (videoRef.current && isScanning) {
+          drawVideoFrame(true);
+        }
+      }, 100);
     }
+  };
+
+  // Close unified dialog and restart scanner
+  const closeUnifiedDialog = () => {
+    console.log('🔄 Closing unified dialog and restarting scanner');
+
+    // Clear dialog states
+    setShowUnifiedDialog(false);
+    setDialogState('searching');
+    setMatchingResults(null);
+    setDialogCountdown(0);
+    setCooldownMessage('');
+
+    // CRITICAL: Release all locks
+    processingLockRef.current = false;
+    setProcessingLock(false);
+    setProcessingState('idle');
+    setLastScanTime(0);
+    console.log('🔓 All locks released');
+
+    resetProcessingState();
+
+    // CRITICAL: Restart scanner
+    setIsScanning(true);
+    console.log('▶️ Scanner restarted');
+
+    setTimeout(() => {
+      if (videoRef.current) {
+        drawVideoFrame(true);
+        console.log('🎥 Camera feed resumed');
+      }
+    }, 100);
   };
 
   // Handle confirming a match from the dialog
@@ -2424,16 +2656,36 @@ const SimpleFaceScanner: React.FC = () => {
 
   // Handle rejecting all matches and registering new member
   const handleRejectAllMatches = () => {
+    console.log('🔄 Transitioning to registration prompt');
     setShowMatchingDialog(false);
     setShowRegistrationPrompt(true);
     setSystemStatus('Face not recognized. Register new member?');
+
+    // Note: Locks remain active during transition to registration
+    // They will be released when registration completes or is canceled
   };
 
   // Handle closing matching dialog without action
   const handleCloseMatchingDialog = () => {
+    console.log('🔄 Closing matching dialog');
     setShowMatchingDialog(false);
     setMatchingResults(null);
     setSystemStatus('Ready to capture');
+
+    // CRITICAL: Release all locks
+    processingLockRef.current = false;
+    setProcessingLock(false);
+    setProcessingState('idle');
+    setLastScanTime(0); // Reset scan cooldown
+    console.log('🔓 AUTO-SCAN: Locks released from dialog close');
+
+    // CRITICAL: Restart detection loop
+    console.log('🔄 Restarting auto-scan detection...');
+    setTimeout(() => {
+      if (videoRef.current && isScanning) {
+        drawVideoFrame(true);
+      }
+    }, 100);
   };
 
   // Reset capture state
@@ -2447,6 +2699,21 @@ const SimpleFaceScanner: React.FC = () => {
     setNewMemberName('');
     setSystemStatus('Ready to capture');
     console.log('🔄 Capture state reset');
+
+    // CRITICAL: Release all locks
+    processingLockRef.current = false;
+    setProcessingLock(false);
+    setProcessingState('idle');
+    setLastScanTime(0); // Reset scan cooldown
+    console.log('🔓 AUTO-SCAN: Locks released from capture state reset');
+
+    // CRITICAL: Restart detection loop
+    console.log('🔄 Restarting auto-scan detection...');
+    setTimeout(() => {
+      if (videoRef.current && isScanning) {
+        drawVideoFrame(true);
+      }
+    }, 100);
   };
 
   // Manual analysis processing with dialog
@@ -2684,6 +2951,15 @@ const SimpleFaceScanner: React.FC = () => {
     setShowAnalysisDialog(false);
     setAnalysisResults(null);
     resetProcessingState();
+    setLastScanTime(0); // Reset scan cooldown
+
+    // CRITICAL: Restart detection loop
+    console.log('🔄 Restarting auto-scan detection...');
+    setTimeout(() => {
+      if (videoRef.current && isScanning) {
+        drawVideoFrame(true);
+      }
+    }, 100);
   };
 
   const handleRegisterAsNew = async () => {
@@ -2749,6 +3025,7 @@ const SimpleFaceScanner: React.FC = () => {
   // Reset processing state and unlock
   const resetProcessingState = () => {
     console.log('🔓 Unlocking processing - ready for next person');
+    processingLockRef.current = false; // Release immediate ref lock
     setProcessingState('idle');
     setProcessingLock(false);
     setCapturedImage('');
@@ -3972,20 +4249,20 @@ const SimpleFaceScanner: React.FC = () => {
             <div className="relative bg-black rounded-xl overflow-hidden shadow-2xl">
               <video
                 ref={videoRef}
-                width="480"
-                height="320"
+                width="640"
+                height="480"
                 autoPlay
                 muted
                 className="w-full h-auto transform scale-x-[-1] bg-black"
-                style={{ maxHeight: '240px' }}
+                style={{ maxHeight: '480px' }}
               />
 
               <canvas
                 ref={canvasRef}
-                width="480"
-                height="320"
+                width="640"
+                height="480"
                 className="absolute top-0 left-0 w-full h-auto transform scale-x-[-1] pointer-events-none z-10"
-                style={{ maxHeight: '240px' }}
+                style={{ maxHeight: '480px' }}
               />
 
               {/* Modern Overlay UI */}
@@ -4024,34 +4301,36 @@ const SimpleFaceScanner: React.FC = () => {
           </div>
         </div>
 
-        {/* Manual Capture Button - Mobile Optimized */}
-        <div className="mt-4 flex justify-center px-4">
-          <IonButton
-            onClick={handleManualCapture}
-            disabled={isCaptureMode || !isScanning || processingLock}
-            className="capture-button"
-            style={{
-              '--background': isCaptureMode ? '#ef4444' : '#3b82f6',
-              '--background-hover': isCaptureMode ? '#dc2626' : '#2563eb',
-              '--color': 'white',
-              '--border-radius': '12px',
-              '--padding-start': '1.5rem',
-              '--padding-end': '1.5rem',
-              '--height': '3rem',
-              '--box-shadow': '0 8px 20px rgba(0, 0, 0, 0.15)',
-              'width': '100%',
-              'max-width': '280px'
-            }}
-          >
-            <div className="flex items-center space-x-2">
-              <span className="text-xl">
-                {isCaptureMode ? '🔄' : '📸'}
-              </span>
-              <span className="font-semibold text-base">
-                {isCaptureMode ? 'Processing...' : 'Scan'}
-              </span>
-            </div>
-          </IonButton>
+        {/* Manual Scan Button (only shown when auto-scan disabled) */}
+        <div className="mt-4 px-4">
+          {!autoScanEnabled && (
+            <IonButton
+              onClick={handleManualCapture}
+              disabled={isCaptureMode || !isScanning || processingLock}
+              className="capture-button w-full"
+              style={{
+                '--background': isCaptureMode ? '#ef4444' : '#3b82f6',
+                '--background-hover': isCaptureMode ? '#dc2626' : '#2563eb',
+                '--color': 'white',
+                '--border-radius': '12px',
+                '--padding-start': '1.5rem',
+                '--padding-end': '1.5rem',
+                '--height': '3rem',
+                '--box-shadow': '0 8px 20px rgba(0, 0, 0, 0.15)',
+                'max-width': '280px',
+                'margin': '0 auto'
+              }}
+            >
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">
+                  {isCaptureMode ? '🔄' : '📸'}
+                </span>
+                <span className="font-semibold text-base">
+                  {isCaptureMode ? 'Processing...' : 'Manual Scan'}
+                </span>
+              </div>
+            </IonButton>
+          )}
         </div>
 
         {/* Alatiris Logo */}
@@ -4072,6 +4351,19 @@ const SimpleFaceScanner: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* NEW UNIFIED MATCHING DIALOG with Side-by-Side Images */}
+        <UnifiedMatchingDialog
+          isOpen={showUnifiedDialog}
+          dialogState={dialogState}
+          capturedImage={capturedFaceImage}
+          matchingResults={matchingResults}
+          dialogMemberPhoto={dialogMemberPhoto}
+          dialogCountdown={dialogCountdown}
+          cooldownMessage={cooldownMessage}
+          onClose={closeUnifiedDialog}
+          onRegister={handleRejectAllMatches}
+        />
 
         {/* Face Matching Results Dialog - Clean & Professional */}
         {showMatchingDialog && matchingResults && (
@@ -4154,6 +4446,37 @@ const SimpleFaceScanner: React.FC = () => {
                           </div>
                         </div>
                       </div>
+
+                      {/* Manual Close Button for Banned Members */}
+                      <button
+                        onClick={() => {
+                          console.log('🔄 Manual close - Banned member acknowledged');
+                          setShowMatchingDialog(false);
+                          setMatchingResults(null);
+                          setDialogCountdown(0);
+                          setCooldownMessage('');
+
+                          // CRITICAL: Release all locks
+                          processingLockRef.current = false;
+                          setProcessingLock(false);
+                          setProcessingState('idle');
+                          setLastScanTime(0); // Reset scan cooldown
+                          console.log('🔓 AUTO-SCAN: Locks released from manual close');
+
+                          resetProcessingState();
+
+                          // CRITICAL: Restart detection loop
+                          console.log('🔄 Restarting auto-scan detection...');
+                          setTimeout(() => {
+                            if (videoRef.current && isScanning) {
+                              drawVideoFrame(true);
+                            }
+                          }, 100);
+                        }}
+                        className="w-full py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 font-medium transition-colors shadow-lg"
+                      >
+                        Close (Security Acknowledged)
+                      </button>
                     </div>
                   ) : (
                     <div className="space-y-6">
@@ -4305,7 +4628,23 @@ const SimpleFaceScanner: React.FC = () => {
                           console.log('🔄 Closing no-match dialog');
                           setShowMatchingDialog(false);
                           setMatchingResults(null);
+
+                          // CRITICAL: Release all locks
+                          processingLockRef.current = false; // Release immediate ref lock
+                          setProcessingLock(false);
+                          setProcessingState('idle');
+                          setLastScanTime(0); // Reset scan cooldown
+                          console.log('🔓 AUTO-SCAN: Locks released from manual close');
+
                           resetProcessingState();
+
+                          // CRITICAL: Restart detection loop
+                          console.log('🔄 Restarting auto-scan detection...');
+                          setTimeout(() => {
+                            if (videoRef.current && isScanning) {
+                              drawVideoFrame(true);
+                            }
+                          }, 100);
                         }}
                         className="w-full py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-medium transition-colors"
                       >
@@ -4390,9 +4729,25 @@ const SimpleFaceScanner: React.FC = () => {
                   </button>
                   <button
                     onClick={() => {
+                      console.log('🔄 Canceling registration prompt');
                       setShowRegistrationPrompt(false);
                       setNewMemberName('');
                       resetCaptureState();
+
+                      // CRITICAL: Release all locks
+                      processingLockRef.current = false;
+                      setProcessingLock(false);
+                      setProcessingState('idle');
+                      setLastScanTime(0); // Reset scan cooldown
+                      console.log('🔓 AUTO-SCAN: Locks released from registration cancel');
+
+                      // CRITICAL: Restart detection loop
+                      console.log('🔄 Restarting auto-scan detection...');
+                      setTimeout(() => {
+                        if (videoRef.current && isScanning) {
+                          drawVideoFrame(true);
+                        }
+                      }, 100);
                     }}
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-medium"
                   >
@@ -4556,12 +4911,45 @@ const SimpleFaceScanner: React.FC = () => {
         trigger="quality-settings-trigger"
         showBackdrop={true}
       >
-        <div className="p-4" style={{ minWidth: '280px' }}>
-          <h3 className="text-lg font-semibold mb-3 text-gray-800">Face Quality Settings</h3>
+        <div className="p-4" style={{ minWidth: '320px' }}>
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">Scanner Settings</h3>
 
+          {/* Auto-Scan Toggle */}
+          <div className="mb-4 pb-4 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <div className="text-sm font-semibold text-gray-800">
+                  🤖 Auto-Scan Mode
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Automatically scan faces when detected
+                </div>
+              </div>
+              <IonToggle
+                checked={autoScanEnabled}
+                onIonChange={(e) => {
+                  setAutoScanEnabled(e.detail.checked);
+                  console.log('🔄 Auto-scan mode:', e.detail.checked ? 'ENABLED' : 'DISABLED');
+                  if (e.detail.checked) {
+                    setSystemStatus('Auto-scan enabled - Ready');
+                  } else {
+                    setSystemStatus('Manual scan mode - Press button to scan');
+                  }
+                }}
+                color="success"
+              />
+            </div>
+            {autoScanEnabled && (
+              <div className="mt-2 p-2 bg-green-50 rounded text-xs text-green-700">
+                ℹ️ Scanner will automatically detect and match faces
+              </div>
+            )}
+          </div>
+
+          {/* Quality Threshold Slider */}
           <div className="mb-4">
             <IonLabel className="block text-sm font-medium text-gray-700 mb-2">
-              Quality Monitoring Threshold: {faceQualityThreshold}%
+              Quality Threshold: {faceQualityThreshold}%
             </IonLabel>
             <IonRange
               min={50}
@@ -4581,7 +4969,7 @@ const SimpleFaceScanner: React.FC = () => {
               <IonLabel slot="end">100%</IonLabel>
             </IonRange>
             <p className="text-xs text-gray-600 mt-2">
-              Quality reference threshold for face detection monitoring. Use manual scan button when ready.
+              Minimum face quality required to trigger {autoScanEnabled ? 'auto-scan' : 'manual scan'}
             </p>
           </div>
 
