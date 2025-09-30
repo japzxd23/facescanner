@@ -85,6 +85,14 @@ export const getCurrentUser = async () => {
 export const getMembersMetadata = async (): Promise<Member[]> => {
   console.log('⚡ getMembersMetadata called (OPTIMIZED - no photo_url)');
 
+  // Check authentication status
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    console.error('❌ Auth error in getMembersMetadata:', authError);
+  }
+  console.log('👤 Current auth user:', user?.email || 'NOT AUTHENTICATED');
+  console.log('🏢 Current organization context:', currentOrganizationId || 'NONE (legacy mode)');
+
   let query = supabase
     .from('members')
     .select('id, name, face_embedding, face_descriptor, status, local_photo_path, details, created_at, updated_at, organization_id');
@@ -103,10 +111,21 @@ export const getMembersMetadata = async (): Promise<Member[]> => {
 
   if (error) {
     console.error('❌ Error in getMembersMetadata:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    });
     throw error;
   }
 
-  console.log('⚡ getMembersMetadata returning', data?.length || 0, 'members (without photo_url - FAST!)');
+  console.log('⚡ getMembersMetadata query successful');
+  console.log('📊 Returned', data?.length || 0, 'members');
+  if (data && data.length > 0) {
+    console.log('📋 Sample member:', { id: data[0].id, name: data[0].name, org: data[0].organization_id });
+  }
+
   return data || [];
 };
 

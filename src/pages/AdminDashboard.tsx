@@ -18,10 +18,14 @@ import {
   IonBadge,
   IonAlert
 } from '@ionic/react';
-import { people, analytics, personAdd, logOut, arrowBack, key, copy, scan, settings } from 'ionicons/icons';
+import { people, analytics, personAdd, logOut, arrowBack, key, copy, scan, settings, shield } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
 import { getMembers, getAttendanceLogs, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
 import { useOrganization } from '../contexts/OrganizationContext';
+import { hasPermission, Permission, getUserRole, getRoleDisplayName } from '../services/rbac';
+import { logSecurityEvent } from '../services/authService';
+import { getScanStatistics } from '../services/anomalyDetector';
+import { getUsageStats } from '../services/rateLimiter';
 
 const AdminDashboard: React.FC = () => {
   const history = useHistory();
@@ -32,6 +36,11 @@ const AdminDashboard: React.FC = () => {
     bannedMembers: 0,
     todayLogs: 0
   });
+  const [securityStats, setSecurityStats] = useState({
+    scanStats: { totalScans: 0, successfulScans: 0, failedScans: 0, successRate: 0 },
+    rateLimitStats: { requestsLastMinute: 0, requestsLastHour: 0, limitPerMinute: 0, limitPerHour: 0, isLocked: false }
+  });
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [showAlert, setShowAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
   const [alertHeader, setAlertHeader] = useState('');
@@ -112,6 +121,15 @@ const AdminDashboard: React.FC = () => {
       console.log('📊 Setting dashboard stats:', newStats);
       setStats(newStats);
 
+      // 🔒 Load security statistics
+      loadSecurityStats();
+
+      // 🔒 Get user role
+      const role = getUserRole();
+      if (role) {
+        setUserRole(getRoleDisplayName(role));
+      }
+
       // Debug: Log member sample for verification
       if (members.length > 0) {
         console.log('👥 Sample members:', members.slice(0, 3).map(m => ({
@@ -131,9 +149,33 @@ const AdminDashboard: React.FC = () => {
           confidence: log.confidence
         })));
       }
+
+      // 🔒 Log dashboard access
+      await logSecurityEvent('admin_dashboard_access', 'info', {
+        userId: user?.id,
+        organizationId: organization?.id,
+        role: role
+      });
     } catch (error) {
       console.error('❌ Error loading AdminDashboard stats:', error);
       console.error('Organization context:', { organization: organization?.id, isLegacyMode });
+    }
+  };
+
+  // 🔒 Load security statistics
+  const loadSecurityStats = () => {
+    try {
+      const scanStats = getScanStatistics();
+      const rateLimitStats = getUsageStats();
+
+      setSecurityStats({
+        scanStats,
+        rateLimitStats
+      });
+
+      console.log('🔒 Security stats loaded:', { scanStats, rateLimitStats });
+    } catch (error) {
+      console.error('❌ Error loading security stats:', error);
     }
   };
 
@@ -495,10 +537,89 @@ const AdminDashboard: React.FC = () => {
                   View Attendance Logs
                 </IonButton>
 
-              
+
               </div>
             </IonCardContent>
           </IonCard>
+
+          {/* 🔒 Security Overview - Only visible to admins */}
+          {hasPermission(Permission.VIEW_SECURITY_EVENTS) && (
+            <IonCard className="enterprise-card" style={{ border: '2px solid var(--ion-color-warning)' }}>
+              <IonCardHeader>
+                <IonCardTitle style={{
+                  color: 'var(--ion-text-color)',
+                  fontSize: '20px',
+                  fontWeight: '700',
+                  fontFamily: 'Inter, system-ui, sans-serif',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <IonIcon icon={shield} style={{ fontSize: '24px', color: 'var(--ion-color-warning)' }} />
+                  Security Overview
+                </IonCardTitle>
+              </IonCardHeader>
+              <IonCardContent style={{ padding: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                  {/* Scan Statistics */}
+                  <div style={{ padding: '16px', background: 'var(--ion-color-light)', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--ion-color-medium)', marginBottom: '4px' }}>
+                      Scan Success Rate
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--ion-color-success)' }}>
+                      {securityStats.scanStats.successRate.toFixed(1)}%
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--ion-color-medium)', marginTop: '4px' }}>
+                      {securityStats.scanStats.successfulScans}/{securityStats.scanStats.totalScans} scans
+                    </div>
+                  </div>
+
+                  {/* Rate Limit Status */}
+                  <div style={{ padding: '16px', background: 'var(--ion-color-light)', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--ion-color-medium)', marginBottom: '4px' }}>
+                      Rate Limit (per min)
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: securityStats.rateLimitStats.isLocked ? 'var(--ion-color-danger)' : 'var(--ion-color-primary)' }}>
+                      {securityStats.rateLimitStats.requestsLastMinute}/{securityStats.rateLimitStats.limitPerMinute}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--ion-color-medium)', marginTop: '4px' }}>
+                      {securityStats.rateLimitStats.isLocked ? '🚫 Locked' : '✅ Active'}
+                    </div>
+                  </div>
+
+                  {/* Failed Scans */}
+                  <div style={{ padding: '16px', background: 'var(--ion-color-light)', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--ion-color-medium)', marginBottom: '4px' }}>
+                      Failed Scans (24h)
+                    </div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: securityStats.scanStats.failedScans > 10 ? 'var(--ion-color-danger)' : 'var(--ion-color-medium)' }}>
+                      {securityStats.scanStats.failedScans}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--ion-color-medium)', marginTop: '4px' }}>
+                      {securityStats.scanStats.failedScans > 10 ? '⚠️ High' : '✓ Normal'}
+                    </div>
+                  </div>
+
+                  {/* User Role */}
+                  <div style={{ padding: '16px', background: 'var(--ion-color-light)', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--ion-color-medium)', marginBottom: '4px' }}>
+                      Your Role
+                    </div>
+                    <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--ion-color-primary)' }}>
+                      {userRole || 'Unknown'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--ion-color-medium)', marginTop: '4px' }}>
+                      Access level
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '16px', padding: '12px', background: 'var(--ion-color-warning-tint)', borderRadius: '8px', fontSize: '13px', color: 'var(--ion-color-warning-shade)' }}>
+                  🔒 Security features active: Rate limiting, anomaly detection, and session monitoring
+                </div>
+              </IonCardContent>
+            </IonCard>
+          )}
 
           {/* System info */}
           <IonCard className="enterprise-card">

@@ -1,11 +1,12 @@
-import React from 'react';
-import { Redirect, Route } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Redirect, Route, useHistory } from 'react-router-dom';
 import {
   IonApp,
   IonRouterOutlet,
   setupIonicReact
 } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
+import { App as CapacitorApp } from '@capacitor/app';
 
 /* Core CSS required for Ionic components to work properly */
 import '@ionic/react/css/core.css';
@@ -29,23 +30,24 @@ import './theme/dark-theme-fixes.css';
 
 /* Pages */
 import LandingPage from './pages/LandingPage';
-import SignupPage from './pages/SignUpPage';
-import LoginPage from './pages/LoginPage';
+import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
-import CameraScanner from './pages/CameraScanner';
-import ImprovedCameraScanner from './pages/ImprovedCameraScanner';
-import FaceApiWebcamScanner from './pages/FaceApiWebcamScanner';
-import MainScanner from './pages/MainScanner';
+
+
+
 import SimpleFaceScanner from './pages/SimpleFaceScanner';
-import BlazingFastScanner from './pages/BlazingFastScanner';
+
 import PerformanceComparison from './pages/PerformanceComparison';
 import SystemTest from './pages/SystemTest';
 
-import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import MemberManagement from './pages/MemberManagement';
 import AttendanceLogs from './pages/AttendanceLogs';
 import AdminSettings from './pages/AdminSettings';
+
+/* Guards */
+import AuthGuard from './guards/AuthGuard';
+import AdminGuard from './guards/AdminGuard';
 
 /* Contexts */
 import { OrganizationProvider } from './contexts/OrganizationContext';
@@ -56,80 +58,128 @@ setupIonicReact({
   innerHTMLTemplatesEnabled: true
 });
 
+const AppContent: React.FC = () => {
+  const history = useHistory();
+
+  useEffect(() => {
+    // Listen for deep link events from OAuth redirect
+    const listener = CapacitorApp.addListener('appUrlOpen', (event: any) => {
+      console.log('🔗 Deep link received:', event.url);
+
+      // Parse deep link: com.FaceCheck.app://auth/callback#access_token=...
+      const url = new URL(event.url);
+
+      // Extract hash parameters from deep link
+      const hash = url.hash;
+
+      if (url.pathname === '//auth/callback' || url.pathname === '/auth/callback') {
+        // Navigate to auth callback page with hash params
+        history.push(`/auth/callback${hash}`);
+      }
+    });
+
+    return () => {
+      listener.remove();
+    };
+  }, [history]);
+
+  return null;
+};
+
 const App: React.FC = () => (
   <IonApp>
     <OrganizationProvider>
       <IonReactRouter>
+        <AppContent />
         <IonRouterOutlet>
-        {/* SaaS Landing and Auth Routes */}
+        {/* Public Routes */}
         <Route exact path="/">
           <LandingPage />
         </Route>
-        <Route exact path="/signup">
-          <SignupPage />
+        <Route exact path="/auth">
+          <AuthPage />
         </Route>
-        <Route exact path="/login">
-          <LoginPage />
-        </Route>
-        <Route exact path="/dashboard">
-          <DashboardPage />
+        <Route exact path="/auth/callback">
+          <AuthPage />
         </Route>
 
-        {/* Scanner Routes */}
+        {/* Protected Scanner Routes */}
         <Route exact path="/camera">
-          <SimpleFaceScanner />
+          <AuthGuard>
+            <SimpleFaceScanner />
+          </AuthGuard>
         </Route>
 
-        <Route exact path="/improved-camera">
-          <ImprovedCameraScanner />
-        </Route>
+     
 
-        <Route exact path="/faceapi-webcam">
-          <FaceApiWebcamScanner />
-        </Route>
-
-        <Route exact path="/main-scanner">
-          <MainScanner />
-        </Route>
+     
 
         <Route exact path="/simple-scanner">
-          <SimpleFaceScanner />
+          <AuthGuard>
+            <SimpleFaceScanner />
+          </AuthGuard>
         </Route>
 
-        <Route exact path="/blazing-fast">
-          <BlazingFastScanner />
-        </Route>
+      
 
         <Route exact path="/performance-test">
-          <PerformanceComparison />
+          <AuthGuard>
+            <PerformanceComparison />
+          </AuthGuard>
         </Route>
 
         <Route exact path="/system-test">
-          <SystemTest />
+          <AuthGuard>
+            <SystemTest />
+          </AuthGuard>
         </Route>
 
         <Route exact path="/scanner">
           <Redirect to="/camera" />
         </Route>
 
-        {/* Legacy Admin Routes (kept for backwards compatibility) */}
-        <Route exact path="/admin/login">
-          <AdminLogin />
+        <Route exact path="/dashboard">
+          <AuthGuard>
+            <DashboardPage />
+          </AuthGuard>
         </Route>
+
+        {/* Protected Admin Routes */}
         <Route exact path="/admin/dashboard">
-          <AdminDashboard />
+          <AuthGuard>
+            <AdminGuard>
+              <AdminDashboard />
+            </AdminGuard>
+          </AuthGuard>
         </Route>
         <Route exact path="/admin/members">
-          <MemberManagement />
+          <AuthGuard>
+            <AdminGuard>
+              <MemberManagement />
+            </AdminGuard>
+          </AuthGuard>
         </Route>
         <Route exact path="/admin/logs">
-          <AttendanceLogs />
+          <AuthGuard>
+            <AdminGuard>
+              <AttendanceLogs />
+            </AdminGuard>
+          </AuthGuard>
         </Route>
         <Route exact path="/admin/settings">
-          <AdminSettings />
+          <AuthGuard>
+            <AdminGuard>
+              <AdminSettings />
+            </AdminGuard>
+          </AuthGuard>
         </Route>
         <Route exact path="/admin">
           <Redirect to="/admin/dashboard" />
+        </Route>
+
+        {/* Fallback - redirect to auth */}
+        <Route>
+          <Redirect to="/auth" />
         </Route>
         </IonRouterOutlet>
       </IonReactRouter>

@@ -30,7 +30,10 @@ import { localDatabase } from '../services/localDatabase';
 import { simpleLocalStorage } from '../services/simpleLocalStorage';
 import { imageStorage } from '../services/imageStorage';
 import { attendanceCooldown } from '../services/attendanceCooldown';
-import * as faceapi from 'face-api.js';
+import { initializeRateLimiter, checkRateLimit, recordRequest, getUsageStats } from '../services/rateLimiter';
+import { initializeAnomalyDetector, analyzeScan, isScannerBlocked, getScanStatistics } from '../services/anomalyDetector';
+import { initializeSessionManager } from '../services/sessionManager';
+import * as faceapi from '@vladmandic/face-api';
 import UnifiedMatchingDialog from '../components/UnifiedMatchingDialog';
 
 interface LocalFaceData {
@@ -692,6 +695,37 @@ const SimpleFaceScanner: React.FC = () => {
       console.log('🔍 Starting face detection initialization...');
       const detectionReady = await initializeFaceDetection();
       console.log('🔍 Fallback face detection initialized:', detectionReady);
+
+      // Step 5.5: Initialize security services (non-blocking)
+      setSystemStatus('Initializing security services...');
+      console.log('🛡️ Starting security services initialization...');
+      try {
+        // Initialize rate limiter (10/min, 100/hour)
+        initializeRateLimiter({
+          maxRequestsPerMinute: 10,
+          maxRequestsPerHour: 100,
+          lockoutDuration: 5 * 60 * 1000, // 5 minutes
+          lockoutThreshold: 20
+        });
+        console.log('✅ Rate limiter initialized');
+
+        // Initialize anomaly detector
+        initializeAnomalyDetector();
+        console.log('✅ Anomaly detector initialized');
+
+        // Initialize session manager (30min idle, 8h max)
+        initializeSessionManager({
+          idleTimeout: 30 * 60 * 1000,
+          maxSessionDuration: 8 * 60 * 60 * 1000,
+          checkInterval: 60 * 1000
+        });
+        console.log('✅ Session manager initialized');
+
+        console.log('🛡️ All security services ready');
+      } catch (securityError) {
+        console.error('⚠️ Security initialization failed (non-critical):', securityError);
+        console.log('⚠️ Scanner will continue without security features');
+      }
 
       // Step 6: Start camera with timeout
       setSystemStatus('Starting camera...');
@@ -1955,6 +1989,33 @@ const SimpleFaceScanner: React.FC = () => {
     try {
       console.log('🤖 AUTO-SCAN: Starting automatic face capture...');
 
+      // 🛡️ SECURITY CHECK 1: Check if scanner is blocked by anomaly detector
+      const blockStatus = isScannerBlocked();
+      if (blockStatus.blocked) {
+        console.warn('🚫 AUTO-SCAN: Blocked by anomaly detector');
+        setQualityStatus(`⚠️ Blocked - wait ${blockStatus.remainingTime}s`);
+        setShowToast(true);
+        setToastMessage(`Security: Please wait ${blockStatus.remainingTime} seconds`);
+        setToastColor('warning');
+        setToastIcon('⚠️');
+        return;
+      }
+
+      // 🛡️ SECURITY CHECK 2: Check rate limit
+      const rateLimitCheck = checkRateLimit();
+      if (!rateLimitCheck.allowed) {
+        console.warn('🚫 AUTO-SCAN: Rate limit exceeded');
+        setQualityStatus(rateLimitCheck.reason || 'Rate limit exceeded');
+        setShowToast(true);
+        setToastMessage(rateLimitCheck.reason || 'Too many requests');
+        setToastColor('warning');
+        setToastIcon('⏱️');
+        return;
+      }
+
+      // 🛡️ Record this request for rate limiting
+      recordRequest();
+
       // Double-check locks (paranoid safety check)
       if (processingLock && processingState !== 'capturing') {
         console.error('❌ AUTO-SCAN: Lock check failed - aborting');
@@ -2028,6 +2089,31 @@ const SimpleFaceScanner: React.FC = () => {
     if (!videoRef.current || !canvasRef.current || processingLock) {
       return;
     }
+
+    // 🛡️ SECURITY CHECK 1: Check if scanner is blocked by anomaly detector
+    const blockStatus = isScannerBlocked();
+    if (blockStatus.blocked) {
+      console.warn('🚫 MANUAL CAPTURE: Blocked by anomaly detector');
+      setShowToast(true);
+      setToastMessage(`Security block: Please wait ${blockStatus.remainingTime} seconds`);
+      setToastColor('warning');
+      setToastIcon('🛡️');
+      return;
+    }
+
+    // 🛡️ SECURITY CHECK 2: Check rate limit
+    const rateLimitCheck = checkRateLimit();
+    if (!rateLimitCheck.allowed) {
+      console.warn('🚫 MANUAL CAPTURE: Rate limit exceeded');
+      setShowToast(true);
+      setToastMessage(rateLimitCheck.reason || 'Too many attempts - please wait');
+      setToastColor('warning');
+      setToastIcon('⏱️');
+      return;
+    }
+
+    // 🛡️ Record this request for rate limiting
+    recordRequest();
 
     console.log('📸 Manual capture initiated');
     setIsCaptureMode(true);
@@ -2179,7 +2265,7 @@ const SimpleFaceScanner: React.FC = () => {
     console.log('⚡ Step 2: Comparing with', members.length, 'members (batch processing)...');
 
     // Import face-api for euclidean distance calculation
-    const faceapi = await import('face-api.js');
+    const faceapi = await import('@vladmandic/face-api');
 
     // OPTIMIZATION: Process members in batches for parallel image loading
     const batchSize = 10; // Process 10 members in parallel
@@ -2285,6 +2371,41 @@ const SimpleFaceScanner: React.FC = () => {
       playBannedSound();
     }
 
+    // 🛡️ SECURITY: Analyze scan for anomalies
+    const scanSuccess = bestSimilarity > matchThreshold && bestMatch !== null;
+    try {
+      const anomalyAnalysis = await analyzeScan({
+        success: scanSuccess,
+        memberId: bestMatch?.id,
+        memberStatus: bestMatch?.status,
+        confidence: bestSimilarity
+      });
+
+      if (anomalyAnalysis.anomalies.length > 0) {
+        console.warn('🚨 Anomalies detected:', anomalyAnalysis.anomalies);
+
+        // Show warning for anomalies
+        anomalyAnalysis.anomalies.forEach(anomaly => {
+          if (anomaly.severity === 'high' || anomaly.severity === 'critical') {
+            setShowToast(true);
+            setToastMessage(`Security: ${anomaly.description}`);
+            setToastColor('danger');
+            setToastIcon('🚨');
+          }
+        });
+      }
+
+      if (anomalyAnalysis.shouldBlock) {
+        console.warn(`🛡️ Scanner blocked for ${anomalyAnalysis.blockDuration} seconds`);
+        setShowToast(true);
+        setToastMessage(`Security: Blocked for ${anomalyAnalysis.blockDuration}s due to suspicious activity`);
+        setToastColor('danger');
+        setToastIcon('🛡️');
+      }
+    } catch (anomalyError) {
+      console.error('⚠️ Anomaly analysis failed (non-critical):', anomalyError);
+    }
+
     console.log('🎯 Best match:', bestMatch?.name, 'with', (bestSimilarity * 100).toFixed(1), '% similarity');
     return { member: bestSimilarity > matchThreshold ? bestMatch : null, similarity: bestSimilarity };
   };
@@ -2304,7 +2425,7 @@ const SimpleFaceScanner: React.FC = () => {
       });
 
       // Import face-api if not already available
-      const faceapi = await import('face-api.js');
+      const faceapi = await import('@vladmandic/face-api');
 
       // Load models if not already loaded (should be pre-loaded at startup)
       if (!faceApiModelsLoaded) {
@@ -2364,7 +2485,7 @@ const SimpleFaceScanner: React.FC = () => {
       console.log(`🖼️ Images loaded - Image1: ${img1.width}x${img1.height}, Image2: ${img2.width}x${img2.height}`);
 
       // Import face-api.js directly
-      const faceapi = await import('face-api.js');
+      const faceapi = await import('@vladmandic/face-api');
 
       // Load models if not already loaded
       try {
