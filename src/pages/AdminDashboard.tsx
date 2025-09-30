@@ -18,9 +18,9 @@ import {
   IonBadge,
   IonAlert
 } from '@ionic/react';
-import { people, analytics, personAdd, logOut, arrowBack, key, copy, scan } from 'ionicons/icons';
+import { people, analytics, personAdd, logOut, arrowBack, key, copy, scan, settings } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
-import { getMembers, getAttendanceLogs, setOrganizationContext } from '../services/supabaseClient';
+import { getMembers, getAttendanceLogs, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
 import { useOrganization } from '../contexts/OrganizationContext';
 
 const AdminDashboard: React.FC = () => {
@@ -43,10 +43,25 @@ const AdminDashboard: React.FC = () => {
     setComponentKey(Date.now());
   }, [history]);
 
+  // Set organization context when component mounts or organization changes
+  useEffect(() => {
+    if (!isLegacyMode && organization) {
+      console.log('🏢 Setting organization context for AdminDashboard on mount:', organization.name, 'ID:', organization.id);
+      setOrganizationContext(organization.id);
+      // Reload stats after setting organization context
+      loadStats();
+    } else if (isLegacyMode) {
+      console.log('🔧 AdminDashboard in legacy mode - clearing organization context');
+      clearOrganizationContext();
+      // Reload stats for legacy mode
+      loadStats();
+    }
+  }, [organization, isLegacyMode]);
+
   const checkAuthAndLoadData = () => {
     try {
       // Check for unified session first
-      const sessionData = localStorage.getItem('membershipScanSession');
+      const sessionData = localStorage.getItem('FaceCheckSession');
       if (sessionData) {
         const session = JSON.parse(sessionData);
         if (session.user && (session.organization || session.isLegacyMode)) {
@@ -76,22 +91,49 @@ const AdminDashboard: React.FC = () => {
 
   const loadStats = async () => {
     try {
+      console.log('📊 Loading members and attendance logs with organization context...');
       const members = await getMembers();
       const logs = await getAttendanceLogs(100);
+
+      console.log(`📈 Loaded stats: ${members.length} members, ${logs.length} logs`);
 
       const today = new Date().toDateString();
       const todayLogs = logs.filter(log =>
         new Date(log.timestamp).toDateString() === today
       );
 
-      setStats({
+      const newStats = {
         totalMembers: members.length,
         vipMembers: members.filter(m => m.status === 'VIP').length,
         bannedMembers: members.filter(m => m.status === 'Banned').length,
         todayLogs: todayLogs.length
-      });
+      };
+
+      console.log('📊 Setting dashboard stats:', newStats);
+      setStats(newStats);
+
+      // Debug: Log member sample for verification
+      if (members.length > 0) {
+        console.log('👥 Sample members:', members.slice(0, 3).map(m => ({
+          id: m.id.substring(0, 8),
+          name: m.name,
+          status: m.status,
+          hasPhoto: !!m.photo_url
+        })));
+      }
+
+      // Debug: Log today's logs sample
+      if (todayLogs.length > 0) {
+        console.log('📅 Today\'s logs sample:', todayLogs.slice(0, 3).map(log => ({
+          id: log.id.substring(0, 8),
+          member_id: log.member_id?.substring(0, 8),
+          timestamp: log.timestamp,
+          confidence: log.confidence
+        })));
+      }
     } catch (error) {
-      console.error('Error loading stats:', error);
+      console.error('❌ Error loading AdminDashboard stats:', error);
+      console.error('Organization context:', { organization: organization?.id, isLegacyMode });
     }
   };
 
@@ -140,6 +182,15 @@ const AdminDashboard: React.FC = () => {
     }
   }, [history]);
 
+  const navigateToSettings = useCallback(() => {
+    console.log('Navigating to settings...');
+    try {
+      history.push('/admin/settings');
+    } catch (error) {
+      console.error('Navigation error:', error);
+    }
+  }, [history]);
+
   return (
     <IonPage key={componentKey}>
       <IonHeader>
@@ -153,7 +204,7 @@ const AdminDashboard: React.FC = () => {
             <IonButton
               fill="clear"
               slot="start"
-              onClick={() => history.push('/dashboard')}
+              onClick={() => history.push('/admin/dashboard')}
               style={{ '--color': 'var(--ion-color-primary)' }}
             >
               <IonIcon icon={arrowBack} />
@@ -177,11 +228,11 @@ const AdminDashboard: React.FC = () => {
         </IonToolbar>
       </IonHeader>
       <IonContent fullscreen style={{ '--background': 'var(--enterprise-surface-secondary)' }}>
-        <div style={{ padding: '24px' }}>
+        <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
           {/* Welcome section */}
           <IonCard className="enterprise-card">
-            <IonCardContent style={{ padding: '32px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <IonCardContent style={{ padding: 'clamp(16px, 4vw, 32px)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
                   <h1 style={{
                     margin: '0 0 8px 0',
@@ -279,16 +330,16 @@ const AdminDashboard: React.FC = () => {
           {/* Stats cards */}
           <IonGrid>
             <IonRow>
-              <IonCol size="6">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 24px)' }}>
                     <IonIcon
                       icon={people}
-                      style={{ fontSize: '40px', color: 'var(--ion-color-success)', marginBottom: '12px' }}
+                      style={{ fontSize: 'clamp(32px, 6vw, 40px)', color: 'var(--ion-color-success)', marginBottom: '12px' }}
                     />
                     <h2 style={{
                       margin: '0 0 4px 0',
-                      fontSize: '32px',
+                      fontSize: 'clamp(24px, 5vw, 32px)',
                       fontWeight: '800',
                       color: 'var(--ion-text-color)',
                       fontFamily: 'Inter, system-ui, sans-serif'
@@ -298,7 +349,7 @@ const AdminDashboard: React.FC = () => {
                     <p style={{
                       margin: 0,
                       color: 'var(--ion-color-medium)',
-                      fontSize: '14px',
+                      fontSize: 'clamp(12px, 2.5vw, 14px)',
                       fontFamily: 'Inter, system-ui, sans-serif'
                     }}>
                       Total Members
@@ -306,16 +357,16 @@ const AdminDashboard: React.FC = () => {
                   </IonCardContent>
                 </IonCard>
               </IonCol>
-              <IonCol size="6">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 24px)' }}>
                     <IonIcon
                       icon={analytics}
-                      style={{ fontSize: '40px', color: 'var(--ion-color-primary)', marginBottom: '12px' }}
+                      style={{ fontSize: 'clamp(32px, 6vw, 40px)', color: 'var(--ion-color-primary)', marginBottom: '12px' }}
                     />
                     <h2 style={{
                       margin: '0 0 4px 0',
-                      fontSize: '32px',
+                      fontSize: 'clamp(24px, 5vw, 32px)',
                       fontWeight: '800',
                       color: 'var(--ion-text-color)',
                       fontFamily: 'Inter, system-ui, sans-serif'
@@ -325,7 +376,7 @@ const AdminDashboard: React.FC = () => {
                     <p style={{
                       margin: 0,
                       color: 'var(--ion-color-medium)',
-                      fontSize: '14px',
+                      fontSize: 'clamp(12px, 2.5vw, 14px)',
                       fontFamily: 'Inter, system-ui, sans-serif'
                     }}>
                       Today's Scans
@@ -333,14 +384,12 @@ const AdminDashboard: React.FC = () => {
                   </IonCardContent>
                 </IonCard>
               </IonCol>
-            </IonRow>
-            <IonRow>
-              <IonCol size="6">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 24px)' }}>
                     <h2 style={{
                       margin: '0 0 4px 0',
-                      fontSize: '32px',
+                      fontSize: 'clamp(24px, 5vw, 32px)',
                       fontWeight: '800',
                       color: 'var(--ion-color-tertiary)',
                       fontFamily: 'Inter, system-ui, sans-serif'
@@ -350,7 +399,7 @@ const AdminDashboard: React.FC = () => {
                     <p style={{
                       margin: 0,
                       color: 'var(--ion-color-medium)',
-                      fontSize: '14px',
+                      fontSize: 'clamp(12px, 2.5vw, 14px)',
                       fontFamily: 'Inter, system-ui, sans-serif'
                     }}>
                       VIP Members
@@ -358,12 +407,12 @@ const AdminDashboard: React.FC = () => {
                   </IonCardContent>
                 </IonCard>
               </IonCol>
-              <IonCol size="6">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 24px)' }}>
                     <h2 style={{
                       margin: '0 0 4px 0',
-                      fontSize: '32px',
+                      fontSize: 'clamp(24px, 5vw, 32px)',
                       fontWeight: '800',
                       color: 'var(--ion-color-danger)',
                       fontFamily: 'Inter, system-ui, sans-serif'
@@ -373,7 +422,7 @@ const AdminDashboard: React.FC = () => {
                     <p style={{
                       margin: 0,
                       color: 'var(--ion-color-medium)',
-                      fontSize: '14px',
+                      fontSize: 'clamp(12px, 2.5vw, 14px)',
                       fontFamily: 'Inter, system-ui, sans-serif'
                     }}>
                       Banned Members
@@ -396,17 +445,17 @@ const AdminDashboard: React.FC = () => {
                 Quick Actions
               </IonCardTitle>
             </IonCardHeader>
-            <IonCardContent style={{ padding: '24px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <IonCardContent style={{ padding: 'clamp(16px, 4vw, 24px)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <IonButton
                   expand="block"
                   color="primary"
                   onClick={navigateToCamera}
                   style={{
-                    '--padding-top': '16px',
-                    '--padding-bottom': '16px',
+                    '--padding-top': 'clamp(12px, 3vw, 16px)',
+                    '--padding-bottom': 'clamp(12px, 3vw, 16px)',
                     '--border-radius': 'var(--enterprise-radius-md)',
-                    fontSize: '16px',
+                    fontSize: 'clamp(14px, 3.5vw, 16px)',
                     fontWeight: '600',
                     fontFamily: 'Inter, system-ui, sans-serif',
                     textTransform: 'none'
@@ -445,6 +494,8 @@ const AdminDashboard: React.FC = () => {
                   <IonIcon icon={analytics} slot="start" />
                   View Attendance Logs
                 </IonButton>
+
+              
               </div>
             </IonCardContent>
           </IonCard>

@@ -51,7 +51,8 @@ import {
   refresh
 } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
-import { getAttendanceLogs, AttendanceLog, getMembers } from '../services/supabaseClient';
+import { getAttendanceLogs, AttendanceLog, getMembers, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
+import { useOrganization } from '../contexts/OrganizationContext';
 
 interface AttendanceStats {
   totalScans: number;
@@ -81,6 +82,7 @@ const AttendanceLogs: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'stats'>('list');
   const [members, setMembers] = useState<Array<{ id: string; name: string }>>([]);
   const history = useHistory();
+  const { organization, isLegacyMode } = useOrganization();
 
   useEffect(() => {
     checkAuth();
@@ -100,7 +102,7 @@ const AttendanceLogs: React.FC = () => {
   const checkAuth = () => {
     try {
       // Check for unified session first
-      const sessionData = localStorage.getItem('membershipScanSession');
+      const sessionData = localStorage.getItem('FaceCheckSession');
       if (sessionData) {
         const session = JSON.parse(sessionData);
         if (session.user && (session.organization || session.isLegacyMode)) {
@@ -129,6 +131,15 @@ const AttendanceLogs: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
+      // Set organization context for database queries
+      if (!isLegacyMode && organization) {
+        console.log('🏢 Setting organization context for AttendanceLogs:', organization.name, 'ID:', organization.id);
+        setOrganizationContext(organization.id);
+      } else if (isLegacyMode) {
+        console.log('🔧 Using legacy mode in AttendanceLogs - clearing organization context');
+        clearOrganizationContext();
+      }
+
       const [logsData, membersData] = await Promise.all([
         getAttendanceLogs(1000), // Get more logs for better statistics
         getMembers()
@@ -352,39 +363,39 @@ const AttendanceLogs: React.FC = () => {
     if (!stats) return null;
 
     return (
-      <div style={{ padding: '24px' }}>
+      <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
         {/* Key Metrics */}
         <IonGrid>
           <IonRow>
-            <IonCol size="6" sizeMd="3">
+            <IonCol size="12" sizeSm="6" sizeMd="3">
               <IonCard className="enterprise-card">
-                <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
-                  <IonIcon icon={analytics} style={{ fontSize: '40px', color: 'var(--ion-color-primary)', marginBottom: '12px' }} />
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '28px', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 24px)' }}>
+                  <IonIcon icon={analytics} style={{ fontSize: 'clamp(32px, 6vw, 40px)', color: 'var(--ion-color-primary)', marginBottom: '12px' }} />
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: 'clamp(20px, 5vw, 28px)', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                     {stats.totalScans}
                   </h2>
-                  <p style={{ margin: 0, color: 'var(--ion-color-medium)', fontSize: '14px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                  <p style={{ margin: 0, color: 'var(--ion-color-medium)', fontSize: 'clamp(12px, 2.5vw, 14px)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                     Total Scans
                   </p>
                 </IonCardContent>
               </IonCard>
             </IonCol>
 
-            <IonCol size="6" sizeMd="3">
+            <IonCol size="12" sizeSm="6" sizeMd="3">
               <IonCard className="enterprise-card">
-                <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
-                  <IonIcon icon={people} style={{ fontSize: '40px', color: 'var(--ion-color-success)', marginBottom: '12px' }} />
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '28px', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 24px)' }}>
+                  <IonIcon icon={people} style={{ fontSize: 'clamp(32px, 6vw, 40px)', color: 'var(--ion-color-success)', marginBottom: '12px' }} />
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: 'clamp(20px, 5vw, 28px)', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                     {stats.uniqueMembers}
                   </h2>
-                  <p style={{ margin: 0, color: 'var(--ion-color-medium)', fontSize: '14px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                  <p style={{ margin: 0, color: 'var(--ion-color-medium)', fontSize: 'clamp(12px, 2.5vw, 14px)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                     Unique Members
                   </p>
                 </IonCardContent>
               </IonCard>
             </IonCol>
 
-            <IonCol size="6" sizeMd="3">
+            <IonCol size="12" sizeSm="6" sizeMd="3">
               <IonCard className="enterprise-card">
                 <IonCardContent style={{ textAlign: 'center', padding: '24px' }}>
                   <IonIcon icon={today} style={{ fontSize: '40px', color: 'var(--ion-color-warning)', marginBottom: '12px' }} />
@@ -556,10 +567,10 @@ const AttendanceLogs: React.FC = () => {
     const groupedLogs = groupLogsByDate(filteredLogs);
 
     return (
-      <div style={{ padding: '24px' }}>
+      <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
         {/* Filters */}
         <IonCard className="enterprise-card">
-          <IonCardContent style={{ padding: '20px' }}>
+          <IonCardContent style={{ padding: 'clamp(16px, 3vw, 20px)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <IonSearchbar
                 value={searchText}
@@ -572,7 +583,7 @@ const AttendanceLogs: React.FC = () => {
                 }}
               />
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
                 <IonSelect
                   value={selectedMember}
                   onSelectionChange={(e) => setSelectedMember(e.detail.value)}
@@ -656,7 +667,7 @@ const AttendanceLogs: React.FC = () => {
 
         {/* Results Summary */}
         <IonCard className="enterprise-card">
-          <IonCardContent style={{ padding: '20px' }}>
+          <IonCardContent style={{ padding: 'clamp(16px, 3vw, 20px)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h3 style={{ margin: '0 0 4px 0', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif', fontWeight: '700' }}>
@@ -670,14 +681,17 @@ const AttendanceLogs: React.FC = () => {
                 fill="outline"
                 onClick={exportData}
                 disabled={filteredLogs.length === 0}
+                size="small"
                 style={{
                   '--border-radius': 'var(--enterprise-radius-md)',
                   fontFamily: 'Inter, system-ui, sans-serif',
                   fontWeight: '600',
-                  textTransform: 'none'
+                  textTransform: 'none',
+                  '--padding-start': '12px',
+                  '--padding-end': '12px'
                 }}
               >
-                <IonIcon icon={download} slot="start" />
+                <IonIcon icon={download} slot="start" style={{ fontSize: '16px' }} />
                 Export CSV
               </IonButton>
             </div>
@@ -711,7 +725,7 @@ const AttendanceLogs: React.FC = () => {
                   const dateTime = formatDateTime(log.timestamp);
                   return (
                     <IonCard key={log.id} className="enterprise-card">
-                      <IonCardContent style={{ padding: '20px' }}>
+                      <IonCardContent style={{ padding: '16px' }}>
                         <IonItem lines="none" style={{ '--padding-start': '0', '--background': 'transparent' }}>
                           <div slot="start" style={{
                             width: '60px',
@@ -721,9 +735,36 @@ const AttendanceLogs: React.FC = () => {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            border: '2px solid var(--enterprise-border-subtle)'
+                            border: '2px solid var(--enterprise-border-subtle)',
+                            overflow: 'hidden',
+                            flexShrink: 0
                           }}>
-                            <IonIcon icon={person} style={{ fontSize: '28px', color: 'var(--ion-color-primary)' }} />
+                            {log.member?.photo_url ? (
+                              <img
+                                src={log.member.photo_url}
+                                alt={log.member.name || 'Member'}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover',
+                                  borderRadius: '50%'
+                                }}
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  const parent = target.parentElement;
+                                  if (parent && !parent.querySelector('ion-icon')) {
+                                    const icon = document.createElement('ion-icon');
+                                    icon.name = 'person';
+                                    icon.style.fontSize = '28px';
+                                    icon.style.color = 'var(--ion-color-primary)';
+                                    parent.appendChild(icon);
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <IonIcon icon={person} style={{ fontSize: '28px', color: 'var(--ion-color-primary)' }} />
+                            )}
                           </div>
 
                           <IonLabel style={{ marginLeft: '16px' }}>
@@ -736,7 +777,7 @@ const AttendanceLogs: React.FC = () => {
                             }}>
                               {log.member?.name || 'Unknown Member'}
                             </h3>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '8px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 <IonIcon icon={time} style={{ fontSize: '16px', color: 'var(--ion-color-medium)' }} />
                                 <span style={{
@@ -853,7 +894,7 @@ const AttendanceLogs: React.FC = () => {
         </IonRefresher>
 
         {/* View Mode Selector */}
-        <div style={{ padding: '24px 24px 0 24px' }}>
+        <div style={{ padding: 'clamp(16px, 4vw, 24px) clamp(16px, 4vw, 24px) 0 clamp(16px, 4vw, 24px)', maxWidth: '1200px', margin: '0 auto' }}>
           <IonSegment
             value={viewMode}
             onIonChange={(e) => setViewMode(e.detail.value as 'list' | 'stats')}

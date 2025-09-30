@@ -15,13 +15,19 @@ import {
   IonInput,
   IonItem,
   IonLabel,
+  IonIcon,
+  IonRange,
+  IonPopover,
 } from '@ionic/react';
-import { supabase, Member, getMembers, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
+import { refreshOutline, settingsOutline, speedometerOutline } from 'ionicons/icons';
+import { Capacitor } from '@capacitor/core';
+import { supabase, Member, getMembers, getMembersMetadata, getMemberPhoto, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
 import { useOrganization } from '../contexts/OrganizationContext';
 import { faceApiService, FaceDetectionResult } from '../services/faceApiService';
 import { optimizedFaceRecognition } from '../services/optimizedFaceRecognition';
 import { localDatabase } from '../services/localDatabase';
 import { simpleLocalStorage } from '../services/simpleLocalStorage';
+import { imageStorage } from '../services/imageStorage';
 import * as faceapi from 'face-api.js';
 
 interface LocalFaceData {
@@ -69,6 +75,20 @@ const SimpleFaceScanner: React.FC = () => {
   const [lastRegistrationTime, setLastRegistrationTime] = useState<number>(0);
   const [processingLock, setProcessingLock] = useState<boolean>(false);
   const [isCaptureMode, setIsCaptureMode] = useState(false);
+  const [dialogCountdown, setDialogCountdown] = useState<number>(0);
+  const [faceQualityThreshold, setFaceQualityThreshold] = useState<number>(() => {
+    // Load from localStorage or default to 95
+    try {
+      const saved = localStorage.getItem('faceQualityThreshold');
+      const value = saved ? parseInt(saved, 10) : 95;
+      console.log('📐 Loaded face quality threshold:', value);
+      return value;
+    } catch (error) {
+      console.error('Failed to load face quality threshold from localStorage:', error);
+      return 95;
+    }
+  });
+  const [showQualitySettings, setShowQualitySettings] = useState<boolean>(false);
   const [capturedFaceImage, setCapturedFaceImage] = useState<string>('');
   const [matchedMember, setMatchedMember] = useState<Member | null>(null);
   const [showRegistrationPrompt, setShowRegistrationPrompt] = useState(false);
@@ -112,6 +132,55 @@ const SimpleFaceScanner: React.FC = () => {
     }
   }, [localFaceCache]);
 
+  // Save face quality threshold to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('faceQualityThreshold', faceQualityThreshold.toString());
+      console.log('💾 Saved face quality threshold to localStorage:', faceQualityThreshold);
+    } catch (error) {
+      console.error('❌ Failed to save face quality threshold to localStorage:', error);
+    }
+  }, [faceQualityThreshold]);
+
+  // Auto-close matching dialog based on member status with countdown
+  useEffect(() => {
+    if (showMatchingDialog && matchingResults?.bestMatch) {
+      const memberStatus = matchingResults.bestMatch.status;
+      let closeDelay = memberStatus === 'Banned' ? 5000 : 3000; // 5s for banned, 3s for allowed/VIP
+      let secondsLeft = Math.ceil(closeDelay / 1000);
+
+      setDialogCountdown(secondsLeft);
+
+      console.log(`⏱️ Auto-closing dialog in ${secondsLeft}s for ${memberStatus} member`);
+
+      // Update countdown every second
+      const countdownInterval = setInterval(() => {
+        secondsLeft--;
+        setDialogCountdown(secondsLeft);
+
+        if (secondsLeft <= 0) {
+          clearInterval(countdownInterval);
+        }
+      }, 1000);
+
+      // Close dialog after full delay
+      const closeTimeout = setTimeout(() => {
+        console.log('🔄 Auto-closing matching dialog');
+        setShowMatchingDialog(false);
+        setMatchingResults(null);
+        setDialogCountdown(0);
+        resetProcessingState();
+      }, closeDelay);
+
+      return () => {
+        clearInterval(countdownInterval);
+        clearTimeout(closeTimeout);
+      };
+    } else {
+      setDialogCountdown(0);
+    }
+  }, [showMatchingDialog, matchingResults]);
+
   // Manual dialog states (kept for debugging)
   const [showAnalysisDialog, setShowAnalysisDialog] = useState<boolean>(false);
   const [analysisResults, setAnalysisResults] = useState<{
@@ -125,6 +194,58 @@ const SimpleFaceScanner: React.FC = () => {
     }>;
     recommendation: string;
   } | null>(null);
+
+  // Dialog member photo state
+  const [dialogMemberPhoto, setDialogMemberPhoto] = useState<string | null>(null);
+  const [isLoadingDialogPhoto, setIsLoadingDialogPhoto] = useState<boolean>(false);
+
+  // Load member photo for dialog display
+  useEffect(() => {
+    const loadDialogPhoto = async () => {
+      if (!showMatchingDialog || !matchingResults?.bestMatch) {
+        setDialogMemberPhoto(null);
+        return;
+      }
+
+      const member = matchingResults.bestMatch;
+      setIsLoadingDialogPhoto(true);
+
+      try {
+        console.log('📸 Loading photo for dialog:', member.name);
+
+        // Try local storage first
+        if (imageStorage.hasImage(member.id)) {
+          const localPhoto = await imageStorage.loadImage(member.id);
+          console.log('✅ Loaded dialog photo from local storage');
+          setDialogMemberPhoto(localPhoto);
+        }
+        // Fallback to photo_url if available
+        else if (member.photo_url) {
+          console.log('✅ Using photo_url from member data');
+          setDialogMemberPhoto(member.photo_url);
+        }
+        // Last resort: fetch from cloud
+        else {
+          console.log('📥 Fetching photo from cloud for dialog');
+          const cloudPhoto = await getMemberPhoto(member.id);
+          if (cloudPhoto) {
+            setDialogMemberPhoto(cloudPhoto);
+            console.log('✅ Loaded dialog photo from cloud');
+          } else {
+            console.warn('⚠️ No photo available for', member.name);
+            setDialogMemberPhoto(null);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to load dialog photo:', error);
+        setDialogMemberPhoto(null);
+      } finally {
+        setIsLoadingDialogPhoto(false);
+      }
+    };
+
+    loadDialogPhoto();
+  }, [showMatchingDialog, matchingResults]);
 
   // Toast states for automated feedback
   const [showToast, setShowToast] = useState<boolean>(false);
@@ -296,7 +417,22 @@ const SimpleFaceScanner: React.FC = () => {
     try {
       console.log('🚀 Starting ultra-fast scanner initialization with SQLite...');
 
-      // Step 1: Initialize face-api.js with timeout
+      // Step 1: Initialize image storage service (NEW!)
+      setSystemStatus('Initializing image storage...');
+      console.log('📱 Starting image storage initialization...');
+      try {
+        await Promise.race([
+          imageStorage.initialize(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Image storage timeout')), 10000))
+        ]);
+        const imageStats = imageStorage.getStats();
+        console.log('✅ Image storage initialized:', imageStats);
+      } catch (error) {
+        console.error('❌ Image storage initialization failed:', error);
+        console.log('⚠️ Continuing without image storage optimization...');
+      }
+
+      // Step 2: Initialize face-api.js with timeout
       setSystemStatus('Initializing face-api.js...');
       console.log('🧠 Starting face-api.js initialization...');
       try {
@@ -310,36 +446,59 @@ const SimpleFaceScanner: React.FC = () => {
         throw new Error(`face-api.js failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
-      // Step 2: Initialize local database with SQLite first, fallback to simple storage
+      // Step 2: Initialize local database - Smart platform detection
       setSystemStatus('Initializing local database...');
-      console.log('📂 Starting database initialization (SQLite with fallback)...');
 
-      try {
-        await Promise.race([
-          localDatabase.initialize(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('SQLite timeout')), 15000))
-        ]);
-        console.log('✅ Local SQLite database initialized');
-        setSqliteEnabled(true);
-        setLocalStorageEnabled(false);
-      } catch (error) {
-        console.error('❌ SQLite initialization failed:', error);
-        console.log('⚠️ Falling back to simple localStorage...');
+      // Check if we're in browser (web) or native environment
+      const isBrowser = !Capacitor.isNativePlatform();
 
-        // Try simple localStorage fallback
+      if (isBrowser) {
+        // Browser mode - skip SQLite, use simple localStorage directly
+        console.log('🌐 Browser detected - using simple localStorage (no SQLite in browser)');
         try {
           await Promise.race([
             simpleLocalStorage.initialize(),
             new Promise((_, reject) => setTimeout(() => reject(new Error('LocalStorage timeout')), 5000))
           ]);
-          console.log('✅ Simple localStorage initialized');
+          console.log('✅ Simple localStorage initialized for browser');
           setSqliteEnabled(false);
           setLocalStorageEnabled(true);
-        } catch (fallbackError) {
-          console.error('❌ LocalStorage fallback also failed:', fallbackError);
+        } catch (error) {
+          console.error('❌ LocalStorage initialization failed:', error);
           console.log('⚠️ Continuing with basic Supabase-only mode');
           setSqliteEnabled(false);
           setLocalStorageEnabled(false);
+        }
+      } else {
+        // Native mode - try SQLite first, fallback to simple storage
+        console.log('📱 Native platform detected - trying SQLite first...');
+        try {
+          await Promise.race([
+            localDatabase.initialize(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SQLite timeout')), 15000))
+          ]);
+          console.log('✅ Local SQLite database initialized');
+          setSqliteEnabled(true);
+          setLocalStorageEnabled(false);
+        } catch (error) {
+          console.error('❌ SQLite initialization failed:', error);
+          console.log('⚠️ Falling back to simple localStorage...');
+
+          // Try simple localStorage fallback
+          try {
+            await Promise.race([
+              simpleLocalStorage.initialize(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('LocalStorage timeout')), 5000))
+            ]);
+            console.log('✅ Simple localStorage initialized');
+            setSqliteEnabled(false);
+            setLocalStorageEnabled(true);
+          } catch (fallbackError) {
+            console.error('❌ LocalStorage fallback also failed:', fallbackError);
+            console.log('⚠️ Continuing with basic Supabase-only mode');
+            setSqliteEnabled(false);
+            setLocalStorageEnabled(false);
+          }
         }
       }
 
@@ -430,25 +589,39 @@ const SimpleFaceScanner: React.FC = () => {
         // Continue without camera - app can still be used for settings
       }
 
+      // Sync images from database to local storage (NEW OPTIMIZATION!)
+      setSystemStatus('Syncing images to local storage...');
+      console.log('🔄 Starting image sync from database...');
+      try {
+        const dbMembers = await getMembers();
+        await imageStorage.syncFromDatabase(dbMembers);
+        const imageStats = imageStorage.getStats();
+        console.log(`✅ Image sync complete: ${imageStats.totalImages} images stored locally`);
+      } catch (error) {
+        console.error('❌ Image sync failed:', error);
+        console.log('⚠️ Continuing without synced images...');
+      }
+
       // Update final status based on available storage
+      const imageStats = imageStorage.getStats();
       if (sqliteEnabled) {
         const finalStats = localDatabase.getStats();
         setSyncStatus('Ready');
-        setSystemStatus(`⚡ Ultra-fast SQLite: ${finalStats.membersWithPhotos} faces cached for instant matching`);
+        setSystemStatus(`⚡ Ultra-fast: ${finalStats.membersWithPhotos} faces + ${imageStats.totalImages} local images`);
         console.log('🎉 Ultra-fast SQLite scanner initialization completed!');
-        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached locally for instant recognition`);
+        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached + ${imageStats.totalImages} images stored locally`);
       } else if (localStorageEnabled) {
         const finalStats = simpleLocalStorage.getStats();
         setSyncStatus('Ready');
-        setSystemStatus(`⚡ Fast storage: ${finalStats.membersWithPhotos} faces cached for quick matching`);
+        setSystemStatus(`⚡ Fast storage: ${finalStats.membersWithPhotos} faces + ${imageStats.totalImages} images`);
         console.log('🎉 Fast localStorage scanner initialization completed!');
-        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached locally for quick recognition`);
+        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached + ${imageStats.totalImages} images stored locally`);
       } else {
         const knownFacesCount = knownFaces.length;
         setSyncStatus('Ready (Basic)');
-        setSystemStatus(`📷 Basic mode: ${knownFacesCount} faces loaded from database`);
+        setSystemStatus(`📷 Basic mode: ${knownFacesCount} faces + ${imageStats.totalImages} images`);
         console.log('🎉 Basic scanner initialization completed!');
-        console.log(`📊 Basic performance: ${knownFacesCount} members loaded from Supabase`);
+        console.log(`📊 Basic performance: ${knownFacesCount} members + ${imageStats.totalImages} images loaded`);
       }
 
       // Clear the timeout since we completed successfully
@@ -1633,19 +1806,21 @@ const SimpleFaceScanner: React.FC = () => {
     }
   };
 
-  // Fetch members and perform face matching
+  // Fetch members and perform face matching - OPTIMIZED!
   const fetchAndMatchMembers = async (capturedImage: string) => {
     try {
       setSystemStatus('Fetching member data...');
 
-      // Fetch all members from database
-      const members = await getMembers();
+      // OPTIMIZATION: Fetch members WITHOUT photo_url (much faster!)
+      // We'll only fetch photo_url if local image is missing
+      console.log('⚡ Using optimized query (no photo_url)');
+      const members = await getMembersMetadata();
       setMembersList(members);
 
-      console.log(`📋 Loaded ${members.length} members from database`);
+      console.log(`⚡ Loaded ${members.length} members metadata (FAST - no base64 photos!)`);
       setSystemStatus('Comparing faces...');
 
-      // Perform face matching - dialog will be shown from compareWithMembers
+      // Perform face matching - will use local images or fallback to cloud
       await compareWithMembers(capturedImage, members);
 
       // User will make decision from matching dialog
@@ -1706,23 +1881,52 @@ const SimpleFaceScanner: React.FC = () => {
     const matchThreshold = 0.70; // 85% similarity threshold
     const allMatches: Array<{member: Member, similarity: number}> = [];
 
-    console.log('🔍 Starting face comparison with', members.length, 'members');
+    console.log('🔍 Starting ULTRA-OPTIMIZED face comparison with', members.length, 'members');
+    console.log('⚡ Strategy: Local images → Cloud fallback only if needed');
+
+    const startTime = Date.now();
+    let localLoads = 0;
+    let cloudFallbacks = 0;
 
     for (const member of members) {
-      if (!member.photo_url) continue;
-
       try {
         console.log(`🔍 Comparing with member: ${member.name}`);
-        console.log(`🖼️ Member photo URL length: ${member.photo_url?.length || 0}`);
 
-        if (!member.photo_url) {
-          console.log(`⚠️ Member ${member.name} has no photo_url`);
+        // ULTRA-OPTIMIZATION: Three-tier loading strategy
+        let memberPhoto: string | null = null;
+
+        // Tier 1: Try local filesystem (FASTEST!)
+        if (imageStorage.hasImage(member.id)) {
+          const loadStart = Date.now();
+          memberPhoto = await imageStorage.loadImage(member.id);
+          const loadTime = Date.now() - loadStart;
+          console.log(`⚡ Tier 1: Loaded from filesystem in ${loadTime}ms`);
+          localLoads++;
+        }
+        // Tier 2: Try member.photo_url if already in memory (FAST)
+        else if (member.photo_url) {
+          console.log(`⚡ Tier 2: Using cached photo_url from memory`);
+          memberPhoto = member.photo_url;
+          cloudFallbacks++;
+        }
+        // Tier 3: Fetch from cloud database (SLOWEST - only when needed!)
+        else {
+          console.log(`⚠️ Tier 3: Fetching photo_url from cloud for ${member.name}`);
+          const cloudStart = Date.now();
+          memberPhoto = await getMemberPhoto(member.id);
+          const cloudTime = Date.now() - cloudStart;
+          console.log(`📥 Fetched from cloud in ${cloudTime}ms`);
+          cloudFallbacks++;
+        }
+
+        if (!memberPhoto) {
+          console.log(`⚠️ Member ${member.name} has no photo available`);
           allMatches.push({ member, similarity: 0 });
           continue;
         }
 
         // Use face-api.js to compare faces
-        const similarity = await compareFaces(capturedImage, member.photo_url);
+        const similarity = await compareFaces(capturedImage, memberPhoto);
         console.log(`👤 ${member.name}: ${(similarity * 100).toFixed(1)}% similarity`);
 
         // Collect all results for dialog
@@ -1738,6 +1942,11 @@ const SimpleFaceScanner: React.FC = () => {
         allMatches.push({ member, similarity: 0 });
       }
     }
+
+    const totalTime = Date.now() - startTime;
+    console.log(`⚡ ULTRA-OPTIMIZED comparison completed in ${totalTime}ms for ${members.length} members`);
+    console.log(`📊 Performance: ${localLoads} local, ${cloudFallbacks} cloud fallbacks`);
+    console.log(`📊 Average time per member: ${(totalTime / members.length).toFixed(1)}ms`);
 
     // Sort results by similarity (highest first)
     allMatches.sort((a, b) => b.similarity - a.similarity);
@@ -1944,6 +2153,28 @@ const SimpleFaceScanner: React.FC = () => {
         });
 
         if (addedMember) {
+          // Save image to local filesystem for fast access (NEW!)
+          console.log('📱 Saving member photo to local filesystem...');
+          try {
+            const localPath = await imageStorage.saveImage(addedMember.id, capturedFaceImage);
+            console.log('✅ Member photo saved to local storage:', localPath);
+
+            // Update database with local path (optional metadata)
+            try {
+              await supabase
+                .from('members')
+                .update({ local_photo_path: localPath })
+                .eq('id', addedMember.id);
+              console.log('✅ Database updated with local_photo_path');
+            } catch (dbError) {
+              console.warn('⚠️ Could not update local_photo_path in database (column may not exist yet):', dbError);
+              // Not critical - optimization works without this column
+            }
+          } catch (error) {
+            console.error('⚠️ Failed to save to local storage:', error);
+            // Continue anyway - image is in database
+          }
+
           // Reload face recognition service to include the new member
           console.log('🔄 Reloading face recognition with new member...');
           await optimizedFaceRecognition.reloadMembers();
@@ -1977,6 +2208,28 @@ const SimpleFaceScanner: React.FC = () => {
 
         if (error || !addedMember) {
           throw new Error(error?.message || 'Failed to register member');
+        }
+
+        // Save image to local filesystem for fast access (NEW!)
+        console.log('📱 Saving member photo to local filesystem...');
+        try {
+          const localPath = await imageStorage.saveImage(addedMember.id, capturedFaceImage);
+          console.log('✅ Member photo saved to local storage:', localPath);
+
+          // Update database with local path (optional metadata)
+          try {
+            await supabase
+              .from('members')
+              .update({ local_photo_path: localPath })
+              .eq('id', addedMember.id);
+            console.log('✅ Database updated with local_photo_path');
+          } catch (dbError) {
+            console.warn('⚠️ Could not update local_photo_path in database (column may not exist yet):', dbError);
+            // Not critical - optimization works without this column
+          }
+        } catch (error) {
+          console.error('⚠️ Failed to save to local storage:', error);
+          // Continue anyway - image is in database
         }
 
         setShowToast(true);
@@ -2341,6 +2594,8 @@ const SimpleFaceScanner: React.FC = () => {
     setProcessingState('idle');
     setProcessingLock(false);
     setCapturedImage('');
+    setIsCaptureMode(false);
+    setSystemStatus('System ready for scanning');
   };
 
   // Show toast message with automatic dismiss
@@ -2533,6 +2788,27 @@ const SimpleFaceScanner: React.FC = () => {
           if (newMember) {
             console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id}) to both databases`);
 
+            // Save image to local filesystem for fast access (NEW!)
+            console.log('📱 Saving member photo to local filesystem...');
+            try {
+              const localPath = await imageStorage.saveImage(newMember.id, analysisResults.capturedImage);
+              console.log('✅ Member photo saved to local storage:', localPath);
+
+              // Update database with local path (optional metadata)
+              try {
+                await supabase
+                  .from('members')
+                  .update({ local_photo_path: localPath })
+                  .eq('id', newMember.id);
+                console.log('✅ Database updated with local_photo_path');
+              } catch (dbError) {
+                console.warn('⚠️ Could not update local_photo_path in database:', dbError);
+              }
+            } catch (error) {
+              console.error('⚠️ Failed to save to local storage:', error);
+              // Continue anyway - image is in database
+            }
+
             // Reload face recognition service to include the new member
             console.log('🔄 Reloading face recognition with new member...');
             await optimizedFaceRecognition.reloadMembers();
@@ -2562,6 +2838,27 @@ const SimpleFaceScanner: React.FC = () => {
 
           if (error || !newMember) {
             throw new Error(error?.message || 'Failed to auto-register member');
+          }
+
+          // Save image to local filesystem for fast access (NEW!)
+          console.log('📱 Saving member photo to local filesystem...');
+          try {
+            const localPath = await imageStorage.saveImage(newMember.id, analysisResults.capturedImage);
+            console.log('✅ Member photo saved to local storage:', localPath);
+
+            // Update database with local path (optional metadata)
+            try {
+              await supabase
+                .from('members')
+                .update({ local_photo_path: localPath })
+                .eq('id', newMember.id);
+              console.log('✅ Database updated with local_photo_path');
+            } catch (dbError) {
+              console.warn('⚠️ Could not update local_photo_path in database:', dbError);
+            }
+          } catch (error) {
+            console.error('⚠️ Failed to save to local storage:', error);
+            // Continue anyway - image is in database
           }
 
           console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id}) to Supabase`);
@@ -3303,17 +3600,20 @@ const SimpleFaceScanner: React.FC = () => {
     }
   };
 
-  // Enhanced basic image comparison with better face detection
+  // 🚀 BLAZING FAST image comparison - optimized for speed while keeping accuracy
   const basicImageComparison = async (image1: string, image2: string): Promise<number> => {
     try {
+      // Use smaller size for faster processing - 64x64 is plenty for face comparison
+      const size = 64;
+
+      // Reuse canvases if possible (create once, use multiple times)
       const canvas1 = document.createElement('canvas');
       const canvas2 = document.createElement('canvas');
-      const ctx1 = canvas1.getContext('2d');
-      const ctx2 = canvas2.getContext('2d');
+      const ctx1 = canvas1.getContext('2d', { willReadFrequently: true });
+      const ctx2 = canvas2.getContext('2d', { willReadFrequently: true });
 
       if (!ctx1 || !ctx2) return 0;
 
-      const size = 128; // Larger for better accuracy
       canvas1.width = canvas1.height = size;
       canvas2.width = canvas2.height = size;
 
@@ -3322,103 +3622,71 @@ const SimpleFaceScanner: React.FC = () => {
 
       return new Promise<number>((resolve) => {
         let loadedCount = 0;
-        const timeout = setTimeout(() => resolve(0), 3000); // Increased timeout
+        const timeout = setTimeout(() => resolve(0), 1500); // Faster timeout
 
         const checkCompletion = () => {
           loadedCount++;
           if (loadedCount === 2) {
             clearTimeout(timeout);
             try {
+              // Disable smoothing for faster drawing
+              ctx1.imageSmoothingEnabled = false;
+              ctx2.imageSmoothingEnabled = false;
+
               ctx1.drawImage(img1, 0, 0, size, size);
               ctx2.drawImage(img2, 0, 0, size, size);
 
               const data1 = ctx1.getImageData(0, 0, size, size).data;
               const data2 = ctx2.getImageData(0, 0, size, size).data;
 
-              // Enhanced comparison with multiple metrics
-              let colorDiff = 0;
-              let brightnessMatch = 0;
-              let edgeSimilarity = 0;
-              let centerWeightedDiff = 0;
+              // 🚀 BLAZING FAST simplified comparison - only check key face regions
+              let totalDiff = 0;
+              let pixelsChecked = 0;
 
-              // Face regions with different weights
+              // Only check 3 key face regions (eyes, nose, mouth) with sampling
               const faceRegions = [
-                { startY: Math.floor(size * 0.2), endY: Math.floor(size * 0.5), weight: 3 }, // Eye region
-                { startY: Math.floor(size * 0.4), endY: Math.floor(size * 0.7), weight: 2 }, // Nose region
-                { startY: Math.floor(size * 0.6), endY: Math.floor(size * 0.9), weight: 2 }  // Mouth region
+                { startY: Math.floor(size * 0.2), endY: Math.floor(size * 0.5) }, // Eye region
+                { startY: Math.floor(size * 0.4), endY: Math.floor(size * 0.65) }, // Nose region
+                { startY: Math.floor(size * 0.65), endY: Math.floor(size * 0.85) }  // Mouth region
               ];
 
+              // Sample every 4th pixel instead of every pixel (16x faster!)
+              const step = 4;
+
               for (const region of faceRegions) {
-                for (let y = region.startY; y < region.endY; y++) {
-                  for (let x = 0; x < size; x++) {
+                for (let y = region.startY; y < region.endY; y += step) {
+                  for (let x = 0; x < size; x += step) {
                     const i = (y * size + x) * 4;
 
-                    const r1 = data1[i], g1 = data1[i+1], b1 = data1[i+2];
-                    const r2 = data2[i], g2 = data2[i+1], b2 = data2[i+2];
+                    if (i + 2 < data1.length && i + 2 < data2.length) {
+                      // Simple RGB difference
+                      const diff = Math.abs(data1[i] - data2[i]) +
+                                   Math.abs(data1[i+1] - data2[i+1]) +
+                                   Math.abs(data1[i+2] - data2[i+2]);
 
-                    // Color difference
-                    const pixelColorDiff = Math.abs(r1-r2) + Math.abs(g1-g2) + Math.abs(b1-b2);
-                    colorDiff += pixelColorDiff * region.weight;
-
-                    // Brightness similarity
-                    const bright1 = (r1 + g1 + b1) / 3;
-                    const bright2 = (r2 + g2 + b2) / 3;
-                    brightnessMatch += (255 - Math.abs(bright1 - bright2)) * region.weight;
-
-                    // Center-weighted comparison (faces usually centered)
-                    const centerX = size / 2;
-                    const centerY = size / 2;
-                    const distFromCenter = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
-                    const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
-                    const centerWeight = (1 - distFromCenter / maxDist) * region.weight;
-
-                    centerWeightedDiff += pixelColorDiff * centerWeight;
+                      totalDiff += diff;
+                      pixelsChecked++;
+                    }
                   }
                 }
               }
 
-              // Calculate edge similarity using gradients
-              for (let y = 1; y < size - 1; y++) {
-                for (let x = 1; x < size - 1; x++) {
-                  const i = (y * size + x) * 4;
-                  const rightI = (y * size + x + 1) * 4;
-                  const bottomI = ((y + 1) * size + x) * 4;
-
-                  // Calculate gradients for both images
-                  const grad1X = Math.abs((data1[i] + data1[i+1] + data1[i+2]) - (data1[rightI] + data1[rightI+1] + data1[rightI+2]));
-                  const grad1Y = Math.abs((data1[i] + data1[i+1] + data1[i+2]) - (data1[bottomI] + data1[bottomI+1] + data1[bottomI+2]));
-                  const edge1 = Math.sqrt(grad1X * grad1X + grad1Y * grad1Y);
-
-                  const grad2X = Math.abs((data2[i] + data2[i+1] + data2[i+2]) - (data2[rightI] + data2[rightI+1] + data2[rightI+2]));
-                  const grad2Y = Math.abs((data2[i] + data2[i+1] + data2[i+2]) - (data2[bottomI] + data2[bottomI+1] + data2[bottomI+2]));
-                  const edge2 = Math.sqrt(grad2X * grad2X + grad2Y * grad2Y);
-
-                  edgeSimilarity += Math.max(0, 100 - Math.abs(edge1 - edge2));
-                }
+              // 🚀 BLAZING FAST similarity calculation - much simpler!
+              if (pixelsChecked === 0) {
+                resolve(0);
+                return;
               }
 
-              // Normalize values
-              const totalPixels = size * size;
-              const totalRegionWeight = faceRegions.reduce((sum, region) =>
-                sum + ((region.endY - region.startY) * size * region.weight), 0
-              );
+              // Calculate average difference per pixel
+              const avgDiff = totalDiff / pixelsChecked;
 
-              const colorSimilarity = Math.max(0, 100 - (colorDiff / (totalRegionWeight * 3 * 255)) * 100);
-              const brightnessSimilarity = (brightnessMatch / (totalRegionWeight * 255)) * 100;
-              const centerSimilarity = Math.max(0, 100 - (centerWeightedDiff / (totalPixels * 3 * 255 * 2)) * 100);
-              const normalizedEdgeSimilarity = edgeSimilarity / ((size - 2) * (size - 2));
+              // Convert to similarity percentage (lower difference = higher similarity)
+              // Max possible diff per pixel is 255*3=765, so normalize against that
+              const similarity = Math.max(0, 100 - (avgDiff / 765) * 100);
 
-              // Weighted combination focusing on facial features
-              const finalSimilarity = (
-                colorSimilarity * 0.35 +
-                brightnessSimilarity * 0.25 +
-                centerSimilarity * 0.25 +
-                normalizedEdgeSimilarity * 0.15
-              );
+              console.log(`🚀 Fast comparison: ${pixelsChecked} pixels checked, avg diff: ${avgDiff.toFixed(1)}, similarity: ${similarity.toFixed(1)}%`);
 
-              console.log(`🔍 Enhanced comparison - Color: ${colorSimilarity.toFixed(1)}%, Brightness: ${brightnessSimilarity.toFixed(1)}%, Center: ${centerSimilarity.toFixed(1)}%, Edge: ${normalizedEdgeSimilarity.toFixed(1)}%, Final: ${finalSimilarity.toFixed(1)}%`);
-
-              resolve(Math.max(0, Math.min(100, finalSimilarity)));
+              resolve(similarity);
             } catch (error) {
               console.error('Basic comparison error:', error);
               resolve(0);
@@ -3468,7 +3736,39 @@ const SimpleFaceScanner: React.FC = () => {
                 </div>
               </div>
 
-             
+              {/* Menu Buttons */}
+              <div className="flex items-center space-x-2">
+                <IonButton
+                  id="quality-settings-trigger"
+                  fill="clear"
+                  size="small"
+                  onClick={() => setShowQualitySettings(true)}
+                  style={{ '--color': 'white', '--border-radius': '8px' }}
+                  title="Face Quality Settings"
+                >
+                  <IonIcon icon={speedometerOutline} style={{ fontSize: '20px' }} />
+                </IonButton>
+
+                <IonButton
+                  fill="clear"
+                  size="small"
+                  onClick={() => window.location.reload()}
+                  style={{ '--color': 'white', '--border-radius': '8px' }}
+                  title="Refresh Page"
+                >
+                  <IonIcon icon={refreshOutline} style={{ fontSize: '20px' }} />
+                </IonButton>
+
+                <IonButton
+                  fill="clear"
+                  size="small"
+                  onClick={() => window.location.href = '/admin/dashboard'}
+                  style={{ '--color': 'white', '--border-radius': '8px' }}
+                  title="Admin Dashboard"
+                >
+                  <IonIcon icon={settingsOutline} style={{ fontSize: '20px' }} />
+                </IonButton>
+              </div>
             </div>
           </div>
         </IonToolbar>
@@ -3741,11 +4041,21 @@ const SimpleFaceScanner: React.FC = () => {
                       {/* Banned Member Info Card */}
                       <div className="bg-red-50 p-4 rounded-xl border-2 border-red-200 shadow-sm">
                         <div className="flex items-center space-x-4">
-                          <img
-                            src={matchingResults.bestMatch.photo_url}
-                            alt={matchingResults.bestMatch.name}
-                            className="w-16 h-16 rounded-full object-cover border-2 border-red-300 grayscale"
-                          />
+                          {isLoadingDialogPhoto ? (
+                            <div className="w-20 h-20 rounded-full bg-red-200 flex items-center justify-center border-2 border-red-300 animate-pulse">
+                              <span className="text-xs text-red-600">Loading...</span>
+                            </div>
+                          ) : dialogMemberPhoto ? (
+                            <img
+                              src={dialogMemberPhoto}
+                              alt={matchingResults.bestMatch.name}
+                              className="w-20 h-20 rounded-full object-cover border-3 border-red-400 grayscale shadow-lg"
+                            />
+                          ) : (
+                            <div className="w-20 h-20 rounded-full bg-red-200 flex items-center justify-center border-2 border-red-300">
+                              <span className="text-2xl">👤</span>
+                            </div>
+                          )}
                           <div className="flex-1 text-left">
                             <h3 className="text-lg font-semibold text-red-800">
                               {matchingResults.bestMatch.name}
@@ -3784,21 +4094,63 @@ const SimpleFaceScanner: React.FC = () => {
                     <div className="space-y-6">
                       {/* Success Header */}
                       <div className="mb-4">
-                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <span className="text-2xl">✅</span>
+                        <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg ${
+                          matchingResults.bestMatch.status === 'VIP'
+                            ? 'bg-gradient-to-br from-purple-100 to-pink-100 animate-pulse'
+                            : 'bg-gradient-to-br from-green-100 to-emerald-100'
+                        }`}>
+                          <span className="text-3xl">{matchingResults.bestMatch.status === 'VIP' ? '👑' : '✅'}</span>
                         </div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-1">Access Granted</h2>
-                        <p className="text-sm text-gray-600">Face recognition successful</p>
+                        <h2 className={`text-2xl font-bold mb-1 ${
+                          matchingResults.bestMatch.status === 'VIP'
+                            ? 'text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600'
+                            : 'text-green-700'
+                        }`}>
+                          {matchingResults.bestMatch.status === 'VIP' ? 'VIP Access Granted' : 'Access Granted'}
+                        </h2>
+                        <p className={`text-sm font-medium ${
+                          matchingResults.bestMatch.status === 'VIP'
+                            ? 'text-purple-600'
+                            : 'text-gray-600'
+                        }`}>
+                          {matchingResults.bestMatch.status === 'VIP' ? 'Welcome, VIP Member!' : 'Face recognition successful'}
+                        </p>
                       </div>
 
                       {/* Member Info Card */}
-                      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                      <div className={`p-5 rounded-xl border-2 shadow-md ${
+                        matchingResults.bestMatch.status === 'VIP'
+                          ? 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-300'
+                          : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300'
+                      }`}>
                         <div className="flex items-center space-x-4">
-                          <img
-                            src={matchingResults.bestMatch.photo_url}
-                            alt={matchingResults.bestMatch.name}
-                            className="w-16 h-16 rounded-full object-cover border-2 border-green-200"
-                          />
+                          {isLoadingDialogPhoto ? (
+                            <div className={`w-24 h-24 rounded-full flex items-center justify-center border-3 animate-pulse ${
+                              matchingResults.bestMatch.status === 'VIP'
+                                ? 'bg-purple-200 border-purple-400'
+                                : 'bg-green-200 border-green-400'
+                            }`}>
+                              <span className="text-xs">Loading...</span>
+                            </div>
+                          ) : dialogMemberPhoto ? (
+                            <img
+                              src={dialogMemberPhoto}
+                              alt={matchingResults.bestMatch.name}
+                              className={`w-24 h-24 rounded-full object-cover border-4 shadow-xl ${
+                                matchingResults.bestMatch.status === 'VIP'
+                                  ? 'border-purple-400 ring-4 ring-purple-200'
+                                  : 'border-green-400 ring-4 ring-green-200'
+                              }`}
+                            />
+                          ) : (
+                            <div className={`w-24 h-24 rounded-full flex items-center justify-center border-3 ${
+                              matchingResults.bestMatch.status === 'VIP'
+                                ? 'bg-purple-200 border-purple-400'
+                                : 'bg-green-200 border-green-400'
+                            }`}>
+                              <span className="text-3xl">👤</span>
+                            </div>
+                          )}
                           <div className="flex-1 text-left">
                             <h3 className="text-lg font-semibold text-gray-800">
                               {matchingResults.bestMatch.name}
@@ -3866,13 +4218,14 @@ const SimpleFaceScanner: React.FC = () => {
                   </div>
                 )}
 
-                {/* Cancel Button */}
-                <button
-                  onClick={handleCloseMatchingDialog}
-                  className="mt-4 px-6 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 font-medium text-sm transition-colors"
-                >
-                  Cancel
-                </button>
+                {/* Auto-close countdown */}
+                <div className="mt-4 text-center">
+                  <p className="text-xs text-gray-500">
+                    {dialogCountdown > 0 ?
+                      `Auto-closing in ${dialogCountdown} second${dialogCountdown !== 1 ? 's' : ''}` :
+                      'Closing...'}
+                  </p>
+                </div>
               </div>
             </IonCardContent>
           </IonCard>
@@ -4095,6 +4448,56 @@ const SimpleFaceScanner: React.FC = () => {
           cssClass="toast-custom"
         />
       </IonContent>
+
+      {/* Face Quality Settings Popover */}
+      <IonPopover
+        isOpen={showQualitySettings}
+        onDidDismiss={() => setShowQualitySettings(false)}
+        trigger="quality-settings-trigger"
+        showBackdrop={true}
+      >
+        <div className="p-4" style={{ minWidth: '280px' }}>
+          <h3 className="text-lg font-semibold mb-3 text-gray-800">Face Quality Settings</h3>
+
+          <div className="mb-4">
+            <IonLabel className="block text-sm font-medium text-gray-700 mb-2">
+              Quality Monitoring Threshold: {faceQualityThreshold}%
+            </IonLabel>
+            <IonRange
+              min={50}
+              max={100}
+              step={5}
+              value={faceQualityThreshold}
+              onIonChange={(e) => {
+                const newValue = e.detail.value as number;
+                setFaceQualityThreshold(newValue);
+              }}
+              pin={true}
+              ticks={true}
+              snaps={true}
+              color="primary"
+            >
+              <IonLabel slot="start">50%</IonLabel>
+              <IonLabel slot="end">100%</IonLabel>
+            </IonRange>
+            <p className="text-xs text-gray-600 mt-2">
+              Quality reference threshold for face detection monitoring. Use manual scan button when ready.
+            </p>
+          </div>
+
+
+          <div className="flex justify-between items-center pt-3 border-t border-gray-200">
+            <span className="text-sm text-gray-600">Current: {faceQuality.toFixed(1)}%</span>
+            <IonButton
+              size="small"
+              fill="solid"
+              onClick={() => setShowQualitySettings(false)}
+            >
+              Done
+            </IonButton>
+          </div>
+        </div>
+      </IonPopover>
     </IonPage>
   );
 };

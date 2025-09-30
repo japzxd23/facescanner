@@ -3303,17 +3303,20 @@ const SimpleFaceScanner: React.FC = () => {
     }
   };
 
-  // Enhanced basic image comparison with better face detection
+  // 🚀 BLAZING FAST image comparison - optimized for speed while keeping accuracy
   const basicImageComparison = async (image1: string, image2: string): Promise<number> => {
     try {
+      // Use smaller size for faster processing - 64x64 is plenty for face comparison
+      const size = 64;
+
+      // Reuse canvases if possible (create once, use multiple times)
       const canvas1 = document.createElement('canvas');
       const canvas2 = document.createElement('canvas');
-      const ctx1 = canvas1.getContext('2d');
-      const ctx2 = canvas2.getContext('2d');
+      const ctx1 = canvas1.getContext('2d', { willReadFrequently: true });
+      const ctx2 = canvas2.getContext('2d', { willReadFrequently: true });
 
       if (!ctx1 || !ctx2) return 0;
 
-      const size = 128; // Larger for better accuracy
       canvas1.width = canvas1.height = size;
       canvas2.width = canvas2.height = size;
 
@@ -3322,103 +3325,71 @@ const SimpleFaceScanner: React.FC = () => {
 
       return new Promise<number>((resolve) => {
         let loadedCount = 0;
-        const timeout = setTimeout(() => resolve(0), 3000); // Increased timeout
+        const timeout = setTimeout(() => resolve(0), 1500); // Faster timeout
 
         const checkCompletion = () => {
           loadedCount++;
           if (loadedCount === 2) {
             clearTimeout(timeout);
             try {
+              // Disable smoothing for faster drawing
+              ctx1.imageSmoothingEnabled = false;
+              ctx2.imageSmoothingEnabled = false;
+
               ctx1.drawImage(img1, 0, 0, size, size);
               ctx2.drawImage(img2, 0, 0, size, size);
 
               const data1 = ctx1.getImageData(0, 0, size, size).data;
               const data2 = ctx2.getImageData(0, 0, size, size).data;
 
-              // Enhanced comparison with multiple metrics
-              let colorDiff = 0;
-              let brightnessMatch = 0;
-              let edgeSimilarity = 0;
-              let centerWeightedDiff = 0;
+              // 🚀 BLAZING FAST simplified comparison - only check key face regions
+              let totalDiff = 0;
+              let pixelsChecked = 0;
 
-              // Face regions with different weights
+              // Only check 3 key face regions (eyes, nose, mouth) with sampling
               const faceRegions = [
-                { startY: Math.floor(size * 0.2), endY: Math.floor(size * 0.5), weight: 3 }, // Eye region
-                { startY: Math.floor(size * 0.4), endY: Math.floor(size * 0.7), weight: 2 }, // Nose region
-                { startY: Math.floor(size * 0.6), endY: Math.floor(size * 0.9), weight: 2 }  // Mouth region
+                { startY: Math.floor(size * 0.2), endY: Math.floor(size * 0.5) }, // Eye region
+                { startY: Math.floor(size * 0.4), endY: Math.floor(size * 0.65) }, // Nose region
+                { startY: Math.floor(size * 0.65), endY: Math.floor(size * 0.85) }  // Mouth region
               ];
 
+              // Sample every 4th pixel instead of every pixel (16x faster!)
+              const step = 4;
+
               for (const region of faceRegions) {
-                for (let y = region.startY; y < region.endY; y++) {
-                  for (let x = 0; x < size; x++) {
+                for (let y = region.startY; y < region.endY; y += step) {
+                  for (let x = 0; x < size; x += step) {
                     const i = (y * size + x) * 4;
 
-                    const r1 = data1[i], g1 = data1[i+1], b1 = data1[i+2];
-                    const r2 = data2[i], g2 = data2[i+1], b2 = data2[i+2];
+                    if (i + 2 < data1.length && i + 2 < data2.length) {
+                      // Simple RGB difference
+                      const diff = Math.abs(data1[i] - data2[i]) +
+                                   Math.abs(data1[i+1] - data2[i+1]) +
+                                   Math.abs(data1[i+2] - data2[i+2]);
 
-                    // Color difference
-                    const pixelColorDiff = Math.abs(r1-r2) + Math.abs(g1-g2) + Math.abs(b1-b2);
-                    colorDiff += pixelColorDiff * region.weight;
-
-                    // Brightness similarity
-                    const bright1 = (r1 + g1 + b1) / 3;
-                    const bright2 = (r2 + g2 + b2) / 3;
-                    brightnessMatch += (255 - Math.abs(bright1 - bright2)) * region.weight;
-
-                    // Center-weighted comparison (faces usually centered)
-                    const centerX = size / 2;
-                    const centerY = size / 2;
-                    const distFromCenter = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
-                    const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
-                    const centerWeight = (1 - distFromCenter / maxDist) * region.weight;
-
-                    centerWeightedDiff += pixelColorDiff * centerWeight;
+                      totalDiff += diff;
+                      pixelsChecked++;
+                    }
                   }
                 }
               }
 
-              // Calculate edge similarity using gradients
-              for (let y = 1; y < size - 1; y++) {
-                for (let x = 1; x < size - 1; x++) {
-                  const i = (y * size + x) * 4;
-                  const rightI = (y * size + x + 1) * 4;
-                  const bottomI = ((y + 1) * size + x) * 4;
-
-                  // Calculate gradients for both images
-                  const grad1X = Math.abs((data1[i] + data1[i+1] + data1[i+2]) - (data1[rightI] + data1[rightI+1] + data1[rightI+2]));
-                  const grad1Y = Math.abs((data1[i] + data1[i+1] + data1[i+2]) - (data1[bottomI] + data1[bottomI+1] + data1[bottomI+2]));
-                  const edge1 = Math.sqrt(grad1X * grad1X + grad1Y * grad1Y);
-
-                  const grad2X = Math.abs((data2[i] + data2[i+1] + data2[i+2]) - (data2[rightI] + data2[rightI+1] + data2[rightI+2]));
-                  const grad2Y = Math.abs((data2[i] + data2[i+1] + data2[i+2]) - (data2[bottomI] + data2[bottomI+1] + data2[bottomI+2]));
-                  const edge2 = Math.sqrt(grad2X * grad2X + grad2Y * grad2Y);
-
-                  edgeSimilarity += Math.max(0, 100 - Math.abs(edge1 - edge2));
-                }
+              // 🚀 BLAZING FAST similarity calculation - much simpler!
+              if (pixelsChecked === 0) {
+                resolve(0);
+                return;
               }
 
-              // Normalize values
-              const totalPixels = size * size;
-              const totalRegionWeight = faceRegions.reduce((sum, region) =>
-                sum + ((region.endY - region.startY) * size * region.weight), 0
-              );
+              // Calculate average difference per pixel
+              const avgDiff = totalDiff / pixelsChecked;
 
-              const colorSimilarity = Math.max(0, 100 - (colorDiff / (totalRegionWeight * 3 * 255)) * 100);
-              const brightnessSimilarity = (brightnessMatch / (totalRegionWeight * 255)) * 100;
-              const centerSimilarity = Math.max(0, 100 - (centerWeightedDiff / (totalPixels * 3 * 255 * 2)) * 100);
-              const normalizedEdgeSimilarity = edgeSimilarity / ((size - 2) * (size - 2));
+              // Convert to similarity percentage (lower difference = higher similarity)
+              // Max possible diff per pixel is 255*3=765, so normalize against that
+              const similarity = Math.max(0, 100 - (avgDiff / 765) * 100);
 
-              // Weighted combination focusing on facial features
-              const finalSimilarity = (
-                colorSimilarity * 0.35 +
-                brightnessSimilarity * 0.25 +
-                centerSimilarity * 0.25 +
-                normalizedEdgeSimilarity * 0.15
-              );
+              console.log(`🚀 Fast comparison: ${pixelsChecked} pixels checked, avg diff: ${avgDiff.toFixed(1)}, similarity: ${similarity.toFixed(1)}%`);
 
-              console.log(`🔍 Enhanced comparison - Color: ${colorSimilarity.toFixed(1)}%, Brightness: ${brightnessSimilarity.toFixed(1)}%, Center: ${centerSimilarity.toFixed(1)}%, Edge: ${normalizedEdgeSimilarity.toFixed(1)}%, Final: ${finalSimilarity.toFixed(1)}%`);
-
-              resolve(Math.max(0, Math.min(100, finalSimilarity)));
+              resolve(similarity);
             } catch (error) {
               console.error('Basic comparison error:', error);
               resolve(0);

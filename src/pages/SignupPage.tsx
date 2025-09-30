@@ -5,15 +5,12 @@ import {
   IonButton,
   IonInput,
   IonItem,
-  IonLabel,
-  IonText,
   IonIcon,
-  IonCard,
-  IonCardContent,
-  IonCardHeader,
-  IonCardTitle,
   IonAlert,
-  IonLoading
+  IonLoading,
+  IonSpinner,
+  IonCard,
+  IonCardContent
 } from '@ionic/react';
 import {
   person,
@@ -23,7 +20,9 @@ import {
   checkmarkCircle,
   lockClosed,
   eyeOutline,
-  eyeOffOutline
+  eyeOffOutline,
+  starOutline,
+  rocket
 } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
@@ -140,7 +139,7 @@ const SignupPage: React.FC = () => {
         .from('organizations')
         .select('subdomain')
         .eq('subdomain', formData.subdomain)
-        .single();
+        .maybeSingle();
 
       if (existingOrg) {
         setAlertMessage('This subdomain is already taken. Please choose another one.');
@@ -155,7 +154,7 @@ const SignupPage: React.FC = () => {
         .from('organization_users')
         .select('email')
         .eq('email', formData.email)
-        .single();
+        .maybeSingle();
 
       if (existingUser) {
         setAlertMessage('An account with this email already exists. Please use a different email or sign in.');
@@ -216,207 +215,248 @@ const SignupPage: React.FC = () => {
     navigator.clipboard.writeText(apiKey);
   };
 
+  const handleContinueToScanner = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Continue button clicked, navigating to /camera');
+
+    try {
+      history.push('/camera');
+    } catch (error) {
+      console.error('React Router failed, using window.location:', error);
+      window.location.href = '/camera';
+    }
+  };
+
+  // Success Screen - Mobile First
   if (showSuccess) {
     return (
       <IonPage>
-        <IonContent fullscreen>
+        <IonContent fullscreen className="ion-no-bounce">
           <div style={{
-            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)',
+            background: 'linear-gradient(180deg, #059669 0%, #047857 100%)',
             minHeight: '100vh',
+            padding: '0',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '32px',
-            position: 'relative'
+            flexDirection: 'column'
           }}>
-            {/* Background decoration */}
-            <div style={{
-              position: 'absolute',
-              top: '15%',
-              right: '10%',
-              width: '200px',
-              height: '200px',
-              background: 'radial-gradient(circle, rgba(37, 99, 235, 0.1) 0%, transparent 70%)',
-              borderRadius: '50%',
-              filter: 'blur(40px)'
-            }} />
 
+            {/* Status Bar Spacer */}
+            <div style={{ height: '44px', background: 'transparent' }} />
+
+            {/* Success Header */}
             <div style={{
-              maxWidth: '600px',
-              width: '100%',
-              background: 'var(--enterprise-surface-primary)',
-              borderRadius: 'var(--enterprise-radius-xl)',
-              border: '1px solid var(--enterprise-border-subtle)',
-              boxShadow: 'var(--enterprise-shadow-xl)',
-              overflow: 'hidden'
+              padding: '32px 20px',
+              textAlign: 'center',
+              color: 'white'
             }}>
               <div style={{
-                textAlign: 'center',
-                padding: '48px 40px 24px',
-                background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
-                color: 'white'
+                width: '100px',
+                height: '100px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 24px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
               }}>
-                <div style={{
-                  width: '80px',
-                  height: '80px',
-                  borderRadius: '50%',
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 24px',
-                  backdropFilter: 'blur(10px)'
-                }}>
-                  <IonIcon icon={checkmarkCircle} style={{ fontSize: '48px', color: 'white' }} />
-                </div>
-                <h1 style={{
-                  fontSize: '32px',
-                  fontWeight: '800',
-                  marginBottom: '16px',
-                  fontFamily: 'Inter, system-ui, sans-serif'
-                }}>
-                  Welcome to MembershipScan!
-                </h1>
-                <p style={{
-                  fontSize: '18px',
-                  opacity: 0.9,
-                  margin: 0,
-                  fontFamily: 'Inter, system-ui, sans-serif'
-                }}>
-                  Your organization has been created successfully
-                </p>
+                <IonIcon icon={checkmarkCircle} style={{ fontSize: '60px', color: 'white' }} />
               </div>
 
-              <div style={{ padding: '40px' }}>
-                <div style={{
-                  background: 'var(--enterprise-surface-tertiary)',
-                  border: '1px solid var(--enterprise-border-medium)',
-                  borderRadius: 'var(--enterprise-radius-lg)',
-                  padding: '32px',
-                  marginBottom: '32px'
-                }}>
-                  <h3 style={{
-                    color: 'var(--ion-color-primary)',
-                    margin: '0 0 16px 0',
-                    fontSize: '20px',
-                    fontWeight: '700',
-                    fontFamily: 'Inter, system-ui, sans-serif'
-                  }}>
-                    🔑 Your API Key
-                  </h3>
-                  <p style={{
-                    color: 'var(--ion-color-medium)',
-                    fontSize: '14px',
-                    margin: '0 0 20px 0',
-                    fontFamily: 'Inter, system-ui, sans-serif'
-                  }}>
-                    Save this API key securely. You'll need it to configure your scanner app and mobile applications.
-                  </p>
-                  <div style={{
-                    background: 'var(--enterprise-surface-primary)',
-                    padding: '20px',
-                    borderRadius: 'var(--enterprise-radius-md)',
-                    border: '1px solid var(--enterprise-border-subtle)',
-                    marginBottom: '20px',
-                    fontFamily: 'Monaco, monospace'
-                  }}>
-                    <code style={{
-                      color: 'var(--ion-text-color)',
-                      fontSize: '14px',
-                      wordBreak: 'break-all',
-                      lineHeight: '1.5'
-                    }}>
-                      {apiKey}
-                    </code>
-                  </div>
-                  <IonButton
-                    fill="outline"
-                    color="primary"
-                    onClick={copyApiKey}
-                    style={{
-                      '--border-radius': 'var(--enterprise-radius-md)',
-                      fontFamily: 'Inter, system-ui, sans-serif',
-                      fontWeight: '600'
-                    }}
-                  >
-                    📋 Copy API Key
-                  </IonButton>
-                </div>
+              <h1 style={{
+                fontSize: '28px',
+                fontWeight: '800',
+                margin: '0 0 8px 0',
+                lineHeight: '1.2'
+              }}>
+                Welcome to FaceCheck!
+              </h1>
+              <p style={{
+                fontSize: '16px',
+                opacity: 0.9,
+                margin: '0',
+                lineHeight: '1.4'
+              }}>
+                Your organization is ready to go
+              </p>
+            </div>
 
-                <div style={{
-                  background: 'var(--enterprise-surface-secondary)',
-                  borderRadius: 'var(--enterprise-radius-lg)',
-                  padding: '24px',
-                  marginBottom: '32px'
-                }}>
-                  <h4 style={{
-                    color: 'var(--ion-text-color)',
-                    margin: '0 0 16px 0',
-                    fontFamily: 'Inter, system-ui, sans-serif',
-                    fontWeight: '600'
+            {/* Content Area */}
+            <div style={{
+              flex: 1,
+              background: '#f8fafc',
+              borderTopLeftRadius: '24px',
+              borderTopRightRadius: '24px',
+              padding: '32px 20px',
+              marginTop: '16px'
+            }}>
+
+              {/* Organization Details */}
+              <IonCard style={{
+                borderRadius: '16px',
+                margin: '0 0 20px 0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+              }}>
+                <IonCardContent style={{ padding: '24px' }}>
+                  <h3 style={{
+                    fontSize: '18px',
+                    fontWeight: '700',
+                    color: '#1f2937',
+                    margin: '0 0 16px 0'
                   }}>
-                    Organization Details
-                  </h4>
-                  <div style={{
-                    color: 'var(--ion-color-medium)',
-                    fontSize: '15px',
-                    fontFamily: 'Inter, system-ui, sans-serif'
-                  }}>
+                    🏢 Organization Details
+                  </h3>
+
+                  <div style={{ display: 'grid', gap: '12px' }}>
                     <div style={{
                       display: 'flex',
                       justifyContent: 'space-between',
-                      marginBottom: '8px'
+                      alignItems: 'center',
+                      padding: '8px 0'
                     }}>
-                      <span>Organization:</span>
-                      <span style={{ fontWeight: '600', color: 'var(--ion-text-color)' }}>
+                      <span style={{ color: '#6b7280', fontSize: '14px' }}>Name:</span>
+                      <span style={{ fontWeight: '600', color: '#1f2937', fontSize: '14px' }}>
                         {formData.organizationName}
                       </span>
                     </div>
                     <div style={{
                       display: 'flex',
                       justifyContent: 'space-between',
-                      marginBottom: '8px'
+                      alignItems: 'center',
+                      padding: '8px 0'
                     }}>
-                      <span>Subdomain:</span>
-                      <span style={{ fontWeight: '600', color: 'var(--ion-text-color)' }}>
-                        {formData.subdomain}.membershipscan.com
+                      <span style={{ color: '#6b7280', fontSize: '14px' }}>Subdomain:</span>
+                      <span style={{ fontWeight: '600', color: '#1f2937', fontSize: '12px' }}>
+                        {formData.subdomain}.facecheck.com
                       </span>
                     </div>
                     <div style={{
                       display: 'flex',
-                      justifyContent: 'space-between'
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 0'
                     }}>
-                      <span>Plan:</span>
+                      <span style={{ color: '#6b7280', fontSize: '14px' }}>Plan:</span>
                       <span style={{
-                        fontWeight: '600',
-                        color: 'var(--ion-color-success)',
-                        background: 'rgba(5, 150, 105, 0.1)',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '12px'
+                        background: '#dcfce7',
+                        color: '#166534',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        fontWeight: '600'
                       }}>
                         FREE (10 members)
                       </span>
                     </div>
                   </div>
-                </div>
+                </IonCardContent>
+              </IonCard>
 
-                <IonButton
-                  expand="block"
-                  color="primary"
-                  onClick={() => history.push('/login')}
-                  style={{
-                    '--border-radius': 'var(--enterprise-radius-md)',
-                    '--padding-top': '16px',
-                    '--padding-bottom': '16px',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    fontFamily: 'Inter, system-ui, sans-serif',
-                    textTransform: 'none'
-                  }}
-                >
-                  Continue to Dashboard
-                </IonButton>
+              {/* API Key Section */}
+              <IonCard style={{
+                borderRadius: '16px',
+                margin: '0 0 24px 0',
+                border: '2px solid #3b82f6',
+                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.15)'
+              }}>
+                <IonCardContent style={{ padding: '24px' }}>
+                  <h3 style={{
+                    fontSize: '18px',
+                    fontWeight: '700',
+                    color: '#3b82f6',
+                    margin: '0 0 12px 0'
+                  }}>
+                    🔑 Your API Key
+                  </h3>
+                  <p style={{
+                    color: '#6b7280',
+                    fontSize: '14px',
+                    margin: '0 0 16px 0',
+                    lineHeight: '1.4'
+                  }}>
+                    Save this securely - you'll need it for mobile app setup
+                  </p>
+
+                  <div style={{
+                    background: '#f1f5f9',
+                    padding: '16px',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0',
+                    marginBottom: '16px',
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    wordBreak: 'break-all',
+                    color: '#1e293b',
+                    lineHeight: '1.4'
+                  }}>
+                    {apiKey}
+                  </div>
+
+                  <IonButton
+                    expand="block"
+                    fill="outline"
+                    onClick={copyApiKey}
+                    style={{
+                      '--border-color': '#3b82f6',
+                      '--color': '#3b82f6',
+                      '--border-radius': '12px',
+                      '--padding-top': '12px',
+                      '--padding-bottom': '12px',
+                      fontSize: '16px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    📋 Copy API Key
+                  </IonButton>
+                </IonCardContent>
+              </IonCard>
+
+              {/* Continue Button */}
+              <IonButton
+                expand="block"
+                size="large"
+                onClick={handleContinueToScanner}
+                style={{
+                  '--background': 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                  '--border-radius': '16px',
+                  '--padding-top': '16px',
+                  '--padding-bottom': '16px',
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  marginBottom: '24px',
+                  boxShadow: '0 8px 24px rgba(59, 130, 246, 0.3)'
+                }}
+              >
+                <IonIcon icon={rocket} style={{ marginRight: '8px' }} />
+                Start Using FaceCheck
+              </IonButton>
+
+              {/* Footer */}
+              <div style={{
+                textAlign: 'center',
+                padding: '20px 0'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  marginBottom: '8px'
+                }}>
+                  <img
+                    src="/alatiris_logo.png"
+                    alt="Alatiris"
+                    style={{ height: '20px', opacity: 0.7 }}
+                  />
+                  <span style={{
+                    color: '#6b7280',
+                    fontSize: '12px',
+                    fontWeight: '500'
+                  }}>
+                    Powered by Alatiris
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -427,495 +467,476 @@ const SignupPage: React.FC = () => {
 
   return (
     <IonPage>
-      <IonContent fullscreen>
+      <IonContent fullscreen className="ion-no-bounce">
+        {/* Mobile-First Signup Design */}
         <div style={{
-          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)',
+          background: 'linear-gradient(180deg, #1e293b 0%, #334155 100%)',
           minHeight: '100vh',
+          padding: '0',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '32px',
-          position: 'relative'
+          flexDirection: 'column'
         }}>
-          {/* Background decoration */}
-          <div style={{
-            position: 'absolute',
-            top: '10%',
-            right: '15%',
-            width: '300px',
-            height: '300px',
-            background: 'radial-gradient(circle, rgba(37, 99, 235, 0.1) 0%, transparent 70%)',
-            borderRadius: '50%',
-            filter: 'blur(40px)'
-          }} />
-          <div style={{
-            position: 'absolute',
-            bottom: '15%',
-            left: '10%',
-            width: '200px',
-            height: '200px',
-            background: 'radial-gradient(circle, rgba(124, 58, 237, 0.1) 0%, transparent 70%)',
-            borderRadius: '50%',
-            filter: 'blur(40px)'
-          }} />
 
+          {/* Status Bar Spacer */}
+          <div style={{ height: '44px', background: 'transparent' }} />
+
+          {/* Header with Back Button */}
           <div style={{
-            maxWidth: '600px',
-            width: '100%',
-            background: 'var(--enterprise-surface-primary)',
-            borderRadius: 'var(--enterprise-radius-xl)',
-            border: '1px solid var(--enterprise-border-subtle)',
-            boxShadow: 'var(--enterprise-shadow-xl)',
-            position: 'relative',
-            zIndex: 10
+            display: 'flex',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderBottom: '1px solid rgba(255,255,255,0.1)'
           }}>
-            {/* Header */}
+            <IonButton
+              fill="clear"
+              size="small"
+              onClick={() => history.push('/')}
+              style={{
+                '--color': 'rgba(255,255,255,0.9)',
+                '--padding-start': '0',
+                '--padding-end': '8px'
+              }}
+            >
+              <IonIcon icon={arrowBack} style={{ fontSize: '24px' }} />
+            </IonButton>
             <div style={{
-              textAlign: 'center',
-              padding: '48px 40px 32px',
-              borderBottom: '1px solid var(--enterprise-border-subtle)'
+              color: 'white',
+              fontSize: '18px',
+              fontWeight: '600',
+              marginLeft: '8px'
             }}>
-              <IonButton
-                fill="clear"
-                color="primary"
-                onClick={() => history.push('/')}
-                style={{
-                  position: 'absolute',
-                  top: '24px',
-                  left: '24px',
-                  '--color': 'var(--ion-color-primary)'
-                }}
-              >
-                <IonIcon icon={arrowBack} />
-              </IonButton>
+              Create Account
+            </div>
+          </div>
 
+          {/* Main Content */}
+          <div style={{
+            flex: 1,
+            background: '#f8fafc',
+            borderTopLeftRadius: '24px',
+            borderTopRightRadius: '24px',
+            marginTop: '16px',
+            padding: '24px 20px',
+            overflow: 'hidden'
+          }}>
+
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
               <div style={{
-                fontSize: '20px',
-                fontWeight: '700',
-                color: 'var(--ion-color-primary)',
-                marginBottom: '8px',
-                fontFamily: 'Inter, system-ui, sans-serif'
+                width: '80px',
+                height: '80px',
+                borderRadius: '20px',
+                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 20px',
+                boxShadow: '0 8px 24px rgba(59, 130, 246, 0.3)'
               }}>
-                MembershipScan
+                <IonIcon
+                  icon={person}
+                  style={{
+                    fontSize: '40px',
+                    color: 'white'
+                  }}
+                />
               </div>
 
               <h1 style={{
-                fontSize: '32px',
+                fontSize: '24px',
                 fontWeight: '800',
-                marginBottom: '12px',
-                color: 'var(--ion-text-color)',
-                fontFamily: 'Inter, system-ui, sans-serif',
-                letterSpacing: '-0.02em'
+                color: '#1f2937',
+                margin: '0 0 8px 0',
+                lineHeight: '1.2'
               }}>
-                Create Your Account
+                Join FaceCheck
               </h1>
               <p style={{
-                color: 'var(--ion-color-medium)',
-                margin: 0,
+                color: '#6b7280',
                 fontSize: '16px',
-                fontFamily: 'Inter, system-ui, sans-serif'
+                margin: '0',
+                lineHeight: '1.4'
               }}>
-                Start your free organization with 10 members included
+                Start with 10 free members included
               </p>
             </div>
 
-            {/* Form */}
-            <div style={{ padding: '40px' }}>
-              <div style={{ marginBottom: '32px' }}>
-                {/* Full Name */}
-                <div className="enterprise-input" style={{
-                  marginBottom: '20px',
-                  background: 'var(--enterprise-surface-secondary)',
-                  border: '1px solid var(--enterprise-border-medium)',
-                  borderRadius: 'var(--enterprise-radius-md)',
-                  padding: '16px 20px',
-                  transition: 'border-color 0.15s ease'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}>
-                    <IonIcon icon={person} style={{ color: 'var(--ion-color-primary)', fontSize: '20px' }} />
-                    <div style={{ flex: 1 }}>
-                      <label style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'var(--ion-color-medium)',
-                        marginBottom: '4px',
-                        fontFamily: 'Inter, system-ui, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Full Name
-                      </label>
-                      <IonInput
-                        value={formData.fullName}
-                        onIonInput={(e) => handleInputChange('fullName', e.detail.value!)}
-                        placeholder="Enter your full name"
-                        style={{
-                          '--color': '#1f2937',
-                          '--placeholder-color': 'var(--ion-color-medium)',
-                          '--padding-start': '0',
-                          '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif',
-                          color: '#1f2937'
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
+            {/* Form Fields */}
+            <div style={{ marginBottom: '24px' }}>
 
-                {/* Email */}
-                <div className="enterprise-input" style={{
-                  marginBottom: '20px',
-                  background: 'var(--enterprise-surface-secondary)',
-                  border: '1px solid var(--enterprise-border-medium)',
-                  borderRadius: 'var(--enterprise-radius-md)',
-                  padding: '16px 20px'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}>
-                    <IonIcon icon={mail} style={{ color: 'var(--ion-color-primary)', fontSize: '20px' }} />
-                    <div style={{ flex: 1 }}>
-                      <label style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'var(--ion-color-medium)',
-                        marginBottom: '4px',
-                        fontFamily: 'Inter, system-ui, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Email Address
-                      </label>
-                      <IonInput
-                        type="email"
-                        value={formData.email}
-                        onIonInput={(e) => handleInputChange('email', e.detail.value!)}
-                        placeholder="Enter your email"
-                        style={{
-                          '--color': '#1f2937',
-                          '--placeholder-color': 'var(--ion-color-medium)',
-                          '--padding-start': '0',
-                          '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif',
-                          color: '#1f2937'
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Password */}
-                <div className="enterprise-input" style={{
-                  marginBottom: '20px',
-                  background: 'var(--enterprise-surface-secondary)',
-                  border: '1px solid var(--enterprise-border-medium)',
-                  borderRadius: 'var(--enterprise-radius-md)',
-                  padding: '16px 20px'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}>
-                    <IonIcon icon={lockClosed} style={{ color: 'var(--ion-color-primary)', fontSize: '20px' }} />
-                    <div style={{ flex: 1 }}>
-                      <label style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'var(--ion-color-medium)',
-                        marginBottom: '4px',
-                        fontFamily: 'Inter, system-ui, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Password
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <IonInput
-                          type={showPassword ? 'text' : 'password'}
-                          value={formData.password}
-                          onIonInput={(e) => handleInputChange('password', e.detail.value!)}
-                          placeholder="Create a secure password (min 8 characters)"
-                          style={{
-                            '--color': '#1f2937',
-                            '--placeholder-color': 'var(--ion-color-medium)',
-                            '--padding-start': '0',
-                            '--padding-end': '0',
-                            fontFamily: 'Inter, system-ui, sans-serif',
-                            flex: 1,
-                            color: '#1f2937'
-                          }}
-                        />
-                        <IonButton
-                          fill="clear"
-                          size="small"
-                          onClick={() => setShowPassword(!showPassword)}
-                          style={{ margin: 0, '--color': 'var(--ion-color-medium)' }}
-                        >
-                          <IonIcon icon={showPassword ? eyeOffOutline : eyeOutline} />
-                        </IonButton>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Confirm Password */}
-                <div className="enterprise-input" style={{
-                  marginBottom: '20px',
-                  background: 'var(--enterprise-surface-secondary)',
-                  border: '1px solid var(--enterprise-border-medium)',
-                  borderRadius: 'var(--enterprise-radius-md)',
-                  padding: '16px 20px'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}>
-                    <IonIcon icon={lockClosed} style={{ color: 'var(--ion-color-primary)', fontSize: '20px' }} />
-                    <div style={{ flex: 1 }}>
-                      <label style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'var(--ion-color-medium)',
-                        marginBottom: '4px',
-                        fontFamily: 'Inter, system-ui, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Confirm Password
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <IonInput
-                          type={showConfirmPassword ? 'text' : 'password'}
-                          value={formData.confirmPassword}
-                          onIonInput={(e) => handleInputChange('confirmPassword', e.detail.value!)}
-                          placeholder="Confirm your password"
-                          style={{
-                            '--color': '#1f2937',
-                            '--placeholder-color': 'var(--ion-color-medium)',
-                            '--padding-start': '0',
-                            '--padding-end': '0',
-                            fontFamily: 'Inter, system-ui, sans-serif',
-                            flex: 1,
-                            color: '#1f2937'
-                          }}
-                        />
-                        <IonButton
-                          fill="clear"
-                          size="small"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          style={{ margin: 0, '--color': 'var(--ion-color-medium)' }}
-                        >
-                          <IonIcon icon={showConfirmPassword ? eyeOffOutline : eyeOutline} />
-                        </IonButton>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Organization Name */}
-                <div className="enterprise-input" style={{
-                  marginBottom: '20px',
-                  background: 'var(--enterprise-surface-secondary)',
-                  border: '1px solid var(--enterprise-border-medium)',
-                  borderRadius: 'var(--enterprise-radius-md)',
-                  padding: '16px 20px'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}>
-                    <IonIcon icon={business} style={{ color: 'var(--ion-color-primary)', fontSize: '20px' }} />
-                    <div style={{ flex: 1 }}>
-                      <label style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'var(--ion-color-medium)',
-                        marginBottom: '4px',
-                        fontFamily: 'Inter, system-ui, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Organization Name
-                      </label>
-                      <IonInput
-                        value={formData.organizationName}
-                        onIonInput={(e) => handleInputChange('organizationName', e.detail.value!)}
-                        placeholder="Your company or organization"
-                        style={{
-                          '--color': '#1f2937',
-                          '--placeholder-color': 'var(--ion-color-medium)',
-                          '--padding-start': '0',
-                          '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif',
-                          color: '#1f2937'
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Subdomain */}
-                <div className="enterprise-input" style={{
-                  marginBottom: '24px',
-                  background: 'var(--enterprise-surface-secondary)',
-                  border: '1px solid var(--enterprise-border-medium)',
-                  borderRadius: 'var(--enterprise-radius-md)',
-                  padding: '16px 20px'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                  }}>
-                    <IonIcon icon={business} style={{ color: 'var(--ion-color-primary)', fontSize: '20px' }} />
-                    <div style={{ flex: 1 }}>
-                      <label style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'var(--ion-color-medium)',
-                        marginBottom: '4px',
-                        fontFamily: 'Inter, system-ui, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        Subdomain
-                      </label>
-                      <IonInput
-                        value={formData.subdomain}
-                        onIonInput={(e) => handleInputChange('subdomain', e.detail.value!)}
-                        placeholder="yourcompany"
-                        style={{
-                          '--color': '#1f2937',
-                          '--placeholder-color': 'var(--ion-color-medium)',
-                          '--padding-start': '0',
-                          '--padding-end': '0',
-                          fontFamily: 'Inter, system-ui, sans-serif',
-                          color: '#1f2937'
-                        }}
-                      />
-                      <div style={{
-                        fontSize: '12px',
-                        color: 'var(--ion-color-medium)',
-                        marginTop: '4px',
-                        fontFamily: 'Inter, system-ui, sans-serif'
-                      }}>
-                        Your URL: {formData.subdomain || 'yourname'}.membershipscan.com
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Features highlight */}
-              <div style={{
-                background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.05) 0%, rgba(124, 58, 237, 0.05) 100%)',
-                border: '1px solid rgba(37, 99, 235, 0.2)',
-                borderRadius: 'var(--enterprise-radius-lg)',
-                padding: '24px',
-                marginBottom: '32px'
-              }}>
-                <h4 style={{
-                  color: 'var(--ion-color-primary)',
-                  fontSize: '16px',
-                  fontWeight: '700',
-                  margin: '0 0 16px 0',
-                  fontFamily: 'Inter, system-ui, sans-serif'
-                }}>
-                  ✨ Your Free Plan Includes:
-                </h4>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '12px'
-                }}>
-                  {[
-                    'Up to 10 members',
-                    'AI face recognition',
-                    'Real-time attendance',
-                    'Mobile app access',
-                    'Secure API access',
-                    'Basic analytics'
-                  ].map((feature, index) => (
-                    <div key={index} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}>
-                      <IonIcon
-                        icon={checkmarkCircle}
-                        style={{
-                          color: 'var(--ion-color-success)',
-                          fontSize: '16px'
-                        }}
-                      />
-                      <span style={{
-                        color: 'var(--ion-text-color)',
-                        fontSize: '14px',
-                        fontFamily: 'Inter, system-ui, sans-serif'
-                      }}>
-                        {feature}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <IonButton
-                expand="block"
-                color="primary"
-                onClick={handleSignup}
-                disabled={isLoading}
-                style={{
-                  '--border-radius': 'var(--enterprise-radius-md)',
-                  '--padding-top': '16px',
-                  '--padding-bottom': '16px',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  fontFamily: 'Inter, system-ui, sans-serif',
-                  textTransform: 'none',
-                  marginBottom: '24px'
-                }}
-              >
-                {isLoading ? 'Creating Account...' : 'Create My Account'}
-              </IonButton>
-
-              {/* Sign in link */}
-              <div style={{ textAlign: 'center' }}>
-                <span style={{
-                  color: 'var(--ion-color-medium)',
-                  fontSize: '14px',
-                  fontFamily: 'Inter, system-ui, sans-serif'
-                }}>
-                  Already have an account?{' '}
-                  <span
+              {/* Full Name */}
+              <div style={{ marginBottom: '16px' }}>
+                <IonItem
+                  style={{
+                    '--background': 'white',
+                    '--border-radius': '12px',
+                    '--padding-start': '16px',
+                    '--padding-end': '16px',
+                    '--min-height': '56px',
+                    '--inner-padding-end': '0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e5e7eb',
+                    marginBottom: '4px'
+                  }}
+                >
+                  <IonIcon
+                    icon={person}
+                    slot="start"
                     style={{
-                      color: 'var(--ion-color-primary)',
-                      cursor: 'pointer',
-                      textDecoration: 'underline',
-                      fontWeight: '600'
+                      color: '#3b82f6',
+                      fontSize: '20px',
+                      marginRight: '12px'
                     }}
-                    onClick={() => history.push('/login')}
-                  >
-                    Sign in here
-                  </span>
-                </span>
+                  />
+                  <IonInput
+                    placeholder="Full name"
+                    value={formData.fullName}
+                    onIonInput={(e) => handleInputChange('fullName', e.detail.value!)}
+                    style={{
+                      '--color': '#1f2937',
+                      '--placeholder-color': '#9ca3af',
+                      fontSize: '16px'
+                    }}
+                  />
+                </IonItem>
               </div>
+
+              {/* Email */}
+              <div style={{ marginBottom: '16px' }}>
+                <IonItem
+                  style={{
+                    '--background': 'white',
+                    '--border-radius': '12px',
+                    '--padding-start': '16px',
+                    '--padding-end': '16px',
+                    '--min-height': '56px',
+                    '--inner-padding-end': '0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e5e7eb',
+                    marginBottom: '4px'
+                  }}
+                >
+                  <IonIcon
+                    icon={mail}
+                    slot="start"
+                    style={{
+                      color: '#3b82f6',
+                      fontSize: '20px',
+                      marginRight: '12px'
+                    }}
+                  />
+                  <IonInput
+                    type="email"
+                    placeholder="Email address"
+                    value={formData.email}
+                    onIonInput={(e) => handleInputChange('email', e.detail.value!)}
+                    style={{
+                      '--color': '#1f2937',
+                      '--placeholder-color': '#9ca3af',
+                      fontSize: '16px'
+                    }}
+                  />
+                </IonItem>
+              </div>
+
+              {/* Organization Name */}
+              <div style={{ marginBottom: '16px' }}>
+                <IonItem
+                  style={{
+                    '--background': 'white',
+                    '--border-radius': '12px',
+                    '--padding-start': '16px',
+                    '--padding-end': '16px',
+                    '--min-height': '56px',
+                    '--inner-padding-end': '0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e5e7eb',
+                    marginBottom: '4px'
+                  }}
+                >
+                  <IonIcon
+                    icon={business}
+                    slot="start"
+                    style={{
+                      color: '#3b82f6',
+                      fontSize: '20px',
+                      marginRight: '12px'
+                    }}
+                  />
+                  <IonInput
+                    placeholder="Organization name"
+                    value={formData.organizationName}
+                    onIonInput={(e) => handleInputChange('organizationName', e.detail.value!)}
+                    style={{
+                      '--color': '#1f2937',
+                      '--placeholder-color': '#9ca3af',
+                      fontSize: '16px'
+                    }}
+                  />
+                </IonItem>
+              </div>
+
+              {/* Subdomain */}
+              <div style={{ marginBottom: '16px' }}>
+                <IonItem
+                  style={{
+                    '--background': 'white',
+                    '--border-radius': '12px',
+                    '--padding-start': '16px',
+                    '--padding-end': '16px',
+                    '--min-height': '56px',
+                    '--inner-padding-end': '0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e5e7eb',
+                    marginBottom: '4px'
+                  }}
+                >
+                  <IonIcon
+                    icon={business}
+                    slot="start"
+                    style={{
+                      color: '#3b82f6',
+                      fontSize: '20px',
+                      marginRight: '12px'
+                    }}
+                  />
+                  <IonInput
+                    placeholder="yourcompany"
+                    value={formData.subdomain}
+                    onIonInput={(e) => handleInputChange('subdomain', e.detail.value!)}
+                    style={{
+                      '--color': '#1f2937',
+                      '--placeholder-color': '#9ca3af',
+                      fontSize: '16px'
+                    }}
+                  />
+                </IonItem>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  paddingLeft: '8px',
+                  marginTop: '4px'
+                }}>
+                  Your URL: {formData.subdomain || 'yourname'}.facecheck.com
+                </div>
+              </div>
+
+              {/* Password */}
+              <div style={{ marginBottom: '16px' }}>
+                <IonItem
+                  style={{
+                    '--background': 'white',
+                    '--border-radius': '12px',
+                    '--padding-start': '16px',
+                    '--padding-end': '16px',
+                    '--min-height': '56px',
+                    '--inner-padding-end': '0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e5e7eb',
+                    marginBottom: '4px'
+                  }}
+                >
+                  <IonIcon
+                    icon={lockClosed}
+                    slot="start"
+                    style={{
+                      color: '#3b82f6',
+                      fontSize: '20px',
+                      marginRight: '12px'
+                    }}
+                  />
+                  <IonInput
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Password (min 8 characters)"
+                    value={formData.password}
+                    onIonInput={(e) => handleInputChange('password', e.detail.value!)}
+                    style={{
+                      '--color': '#1f2937',
+                      '--placeholder-color': '#9ca3af',
+                      fontSize: '16px'
+                    }}
+                  />
+                  <IonButton
+                    fill="clear"
+                    slot="end"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      '--color': '#6b7280',
+                      '--padding-start': '8px',
+                      '--padding-end': '0'
+                    }}
+                  >
+                    <IonIcon icon={showPassword ? eyeOffOutline : eyeOutline} />
+                  </IonButton>
+                </IonItem>
+              </div>
+
+              {/* Confirm Password */}
+              <div style={{ marginBottom: '20px' }}>
+                <IonItem
+                  style={{
+                    '--background': 'white',
+                    '--border-radius': '12px',
+                    '--padding-start': '16px',
+                    '--padding-end': '16px',
+                    '--min-height': '56px',
+                    '--inner-padding-end': '0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e5e7eb',
+                    marginBottom: '4px'
+                  }}
+                >
+                  <IonIcon
+                    icon={lockClosed}
+                    slot="start"
+                    style={{
+                      color: '#3b82f6',
+                      fontSize: '20px',
+                      marginRight: '12px'
+                    }}
+                  />
+                  <IonInput
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Confirm password"
+                    value={formData.confirmPassword}
+                    onIonInput={(e) => handleInputChange('confirmPassword', e.detail.value!)}
+                    style={{
+                      '--color': '#1f2937',
+                      '--placeholder-color': '#9ca3af',
+                      fontSize: '16px'
+                    }}
+                  />
+                  <IonButton
+                    fill="clear"
+                    slot="end"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    style={{
+                      '--color': '#6b7280',
+                      '--padding-start': '8px',
+                      '--padding-end': '0'
+                    }}
+                  >
+                    <IonIcon icon={showConfirmPassword ? eyeOffOutline : eyeOutline} />
+                  </IonButton>
+                </IonItem>
+              </div>
+            </div>
+
+            {/* Free Plan Features */}
+            <div style={{
+              background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)',
+              borderRadius: '16px',
+              padding: '20px',
+              marginBottom: '24px',
+              border: '1px solid #0ea5e9'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '16px'
+              }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  background: '#0ea5e9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <IonIcon icon={starOutline} style={{ fontSize: '18px', color: 'white' }} />
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: '16px',
+                    fontWeight: '700',
+                    color: '#0369a1',
+                    marginBottom: '2px'
+                  }}>
+                    Free Plan Includes
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {[
+                  'Up to 10 members',
+                  'AI face recognition',
+                  'Real-time attendance',
+                  'Mobile app access'
+                ].map((feature, index) => (
+                  <div key={index} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <IonIcon
+                      icon={checkmarkCircle}
+                      style={{
+                        color: '#059669',
+                        fontSize: '16px'
+                      }}
+                    />
+                    <span style={{
+                      color: '#0369a1',
+                      fontSize: '14px',
+                      fontWeight: '500'
+                    }}>
+                      {feature}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Create Account Button */}
+            <IonButton
+              expand="block"
+              size="large"
+              onClick={handleSignup}
+              disabled={isLoading}
+              style={{
+                '--background': 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                '--border-radius': '12px',
+                '--padding-top': '16px',
+                '--padding-bottom': '16px',
+                fontSize: '18px',
+                fontWeight: '700',
+                marginBottom: '16px',
+                boxShadow: '0 4px 16px rgba(59, 130, 246, 0.3)'
+              }}
+            >
+              {isLoading ? (
+                <>
+                  <IonSpinner style={{ marginRight: '8px' }} />
+                  Creating Account...
+                </>
+              ) : (
+                'Create My Account'
+              )}
+            </IonButton>
+
+            {/* Sign In Link */}
+            <div style={{ textAlign: 'center' }}>
+              <p style={{
+                color: '#6b7280',
+                fontSize: '16px',
+                margin: '0'
+              }}>
+                Already have an account?{' '}
+                <span
+                  style={{
+                    color: '#3b82f6',
+                    fontWeight: '600',
+                    textDecoration: 'underline',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => history.push('/login')}
+                >
+                  Sign in here
+                </span>
+              </p>
             </div>
           </div>
         </div>

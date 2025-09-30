@@ -36,7 +36,8 @@ import {
   settings,
   add,
   download,
-  qrCode
+  qrCode,
+  flash
 } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
@@ -78,7 +79,7 @@ const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     // Check for session data
-    const sessionJson = localStorage.getItem('membershipScanSession');
+    const sessionJson = localStorage.getItem('FaceCheckSession');
     if (!sessionJson) {
       history.push('/login');
       return;
@@ -143,7 +144,7 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('membershipScanSession');
+    localStorage.removeItem('FaceCheckSession');
     history.push('/');
   };
 
@@ -167,6 +168,10 @@ const DashboardPage: React.FC = () => {
 
   const goToScanner = () => {
     history.push('/camera');
+  };
+
+  const goToBlazingFastScanner = () => {
+    history.push('/blazing-fast');
   };
 
   const getPlanColor = (planType: string) => {
@@ -240,27 +245,49 @@ const DashboardPage: React.FC = () => {
               Here's your organization overview
             </p>
 
-            {/* Prominent Start Scanning Button */}
-            <IonButton
-              expand="block"
-              size="large"
-              color="primary"
-              onClick={goToScanner}
-              style={{
-                '--padding-top': '20px',
-                '--padding-bottom': '20px',
-                '--border-radius': 'var(--enterprise-radius-lg)',
-                fontSize: '18px',
-                fontWeight: '700',
-                fontFamily: 'Inter, system-ui, sans-serif',
-                textTransform: 'none',
-                marginBottom: '24px',
-                boxShadow: 'var(--enterprise-shadow-lg)'
-              }}
-            >
-              <IonIcon icon={scan} slot="start" style={{ fontSize: '24px' }} />
-              Start Face Scanning
-            </IonButton>
+            {/* Scanner Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px', marginBottom: '24px' }}>
+              <IonButton
+                expand="block"
+                size="large"
+                color="warning"
+                onClick={goToBlazingFastScanner}
+                style={{
+                  '--padding-top': '20px',
+                  '--padding-bottom': '20px',
+                  '--border-radius': 'var(--enterprise-radius-lg)',
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  fontFamily: 'Inter, system-ui, sans-serif',
+                  textTransform: 'none',
+                  background: 'linear-gradient(135deg, #ff6b00, #ff8c00)',
+                  boxShadow: 'var(--enterprise-shadow-lg)'
+                }}
+              >
+                <IonIcon icon={flash} slot="start" style={{ fontSize: '24px' }} />
+                🚀 BLAZING FAST Scanner (NEW!)
+              </IonButton>
+
+              <IonButton
+                expand="block"
+                size="large"
+                color="primary"
+                fill="outline"
+                onClick={goToScanner}
+                style={{
+                  '--padding-top': '16px',
+                  '--padding-bottom': '16px',
+                  '--border-radius': 'var(--enterprise-radius-lg)',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  fontFamily: 'Inter, system-ui, sans-serif',
+                  textTransform: 'none'
+                }}
+              >
+                <IonIcon icon={scan} slot="start" style={{ fontSize: '20px' }} />
+                Current Scanner
+              </IonButton>
+            </div>
           </div>
 
           {/* Stats Grid */}
@@ -384,7 +411,7 @@ const DashboardPage: React.FC = () => {
                   margin: 0,
                   fontFamily: 'Inter, system-ui, sans-serif'
                 }}>
-                  {sessionData.organization.subdomain}.membershipscan.com
+                  {sessionData.organization.subdomain}.FaceCheck.com
                 </p>
               </div>
 

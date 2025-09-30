@@ -31,7 +31,7 @@ class TensorFlowFaceDetectionService {
   // Configuration
   private readonly MAX_FACES = 3;
   private readonly MIN_CONFIDENCE = 0.5;
-  private readonly SIMILARITY_THRESHOLD = 0.85; // Stricter threshold to prevent profile/covered face matches
+  private readonly SIMILARITY_THRESHOLD = 0.90; // SECURITY UPDATE: Raised from 0.85 to prevent false positives with children/family
 
   async initialize(): Promise<void> {
     // Prevent multiple simultaneous initializations
@@ -1122,20 +1122,42 @@ class TensorFlowFaceDetectionService {
 
       let bestMatch: CachedFaceEmbedding | null = null;
       let bestSimilarity = 0;
+      const allSimilarities: Array<{name: string, similarity: number}> = [];
 
-      console.log(`Matching against ${cachedEmbeddings.length} cached faces`);
+      console.log(`🔒 SECURE MATCHING: Comparing against ${cachedEmbeddings.length} cached faces with threshold ${this.SIMILARITY_THRESHOLD}`);
 
+      // SECURITY FIX: Find the absolute best match first, then check threshold
       for (const cached of cachedEmbeddings) {
         const similarity = this.calculateSimilarity(embedding, cached.embedding);
+        allSimilarities.push({ name: cached.name, similarity: similarity });
 
-        if (similarity > bestSimilarity && similarity >= this.SIMILARITY_THRESHOLD) {
+        console.log(`🔍 ${cached.name}: ${similarity.toFixed(4)}`);
+
+        // Find the best match regardless of threshold (security fix)
+        if (similarity > bestSimilarity) {
           bestMatch = cached;
           bestSimilarity = similarity;
         }
       }
 
-      if (bestMatch) {
-        console.log(`✅ Match found: ${bestMatch.name} (similarity: ${bestSimilarity.toFixed(3)})`);
+      // Sort and log all matches for debugging
+      allSimilarities.sort((a, b) => b.similarity - a.similarity);
+      console.log(`🏆 All matches (sorted):`, allSimilarities.slice(0, 3));
+
+      // SECURITY: Only accept the best match if it meets the minimum threshold
+      if (bestMatch && bestSimilarity >= this.SIMILARITY_THRESHOLD) {
+        console.log(`✅ SECURE MATCH CONFIRMED: ${bestMatch.name} (similarity: ${bestSimilarity.toFixed(4)} >= ${this.SIMILARITY_THRESHOLD})`);
+
+        // Additional security check: ensure significant confidence
+        const secondBest = allSimilarities[1]?.similarity || 0;
+        const confidenceGap = bestSimilarity - secondBest;
+
+        if (confidenceGap < 0.1 && cachedEmbeddings.length > 1) {
+          console.log(`⚠️  LOW CONFIDENCE GAP: ${confidenceGap.toFixed(4)} - could be family member or false positive`);
+          console.log(`🔒 SECURITY REJECTION: Ambiguous match between similar faces`);
+          return { matched: false, similarity: bestSimilarity, confidence: 0 };
+        }
+
         return {
           matched: true,
           person: bestMatch,
@@ -1144,7 +1166,7 @@ class TensorFlowFaceDetectionService {
         };
       }
 
-      console.log(`❌ No match above threshold (${this.SIMILARITY_THRESHOLD})`);
+      console.log(`🔒 SECURITY REJECTION: Best match ${bestMatch?.name || 'none'} similarity ${bestSimilarity.toFixed(4)} < threshold ${this.SIMILARITY_THRESHOLD}`);
       return { matched: false, similarity: bestSimilarity, confidence: 0 };
     } catch (error) {
       console.error('Face matching error:', error);

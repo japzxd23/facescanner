@@ -51,13 +51,13 @@ const EnterpriseLayout: React.FC<EnterpriseLayoutProps> = ({
   ];
 
   const handleLogout = () => {
-    localStorage.removeItem('membershipScanSession');
+    localStorage.removeItem('FaceCheckSession');
     history.push('/');
   };
 
   const getUserSession = () => {
     try {
-      const session = localStorage.getItem('membershipScanSession');
+      const session = localStorage.getItem('FaceCheckSession');
       return session ? JSON.parse(session) : null;
     } catch {
       return null;
@@ -81,7 +81,7 @@ const EnterpriseLayout: React.FC<EnterpriseLayoutProps> = ({
                 fontSize: '18px',
                 color: 'var(--ion-color-primary)'
               }}>
-                MembershipScan
+                FaceCheck
               </IonTitle>
             </IonToolbar>
           </IonHeader>

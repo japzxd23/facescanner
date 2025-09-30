@@ -16,12 +16,10 @@ import {
   IonItem,
   IonLabel,
 } from '@ionic/react';
-import { supabase, Member, getMembers, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
+import { supabase, Member, addMember, getMembers, setOrganizationContext, clearOrganizationContext, getMembersNeedingDescriptors, updateMemberDescriptor } from '../services/supabaseClient';
 import { useOrganization } from '../contexts/OrganizationContext';
 import { faceApiService, FaceDetectionResult } from '../services/faceApiService';
 import { optimizedFaceRecognition } from '../services/optimizedFaceRecognition';
-import { localDatabase } from '../services/localDatabase';
-import { simpleLocalStorage } from '../services/simpleLocalStorage';
 import * as faceapi from 'face-api.js';
 
 interface LocalFaceData {
@@ -70,18 +68,11 @@ const SimpleFaceScanner: React.FC = () => {
   const [processingLock, setProcessingLock] = useState<boolean>(false);
   const [isCaptureMode, setIsCaptureMode] = useState(false);
   const [capturedFaceImage, setCapturedFaceImage] = useState<string>('');
+  const [capturedFaceDescriptor, setCapturedFaceDescriptor] = useState<Float32Array | null>(null);
   const [matchedMember, setMatchedMember] = useState<Member | null>(null);
   const [showRegistrationPrompt, setShowRegistrationPrompt] = useState(false);
   const [membersList, setMembersList] = useState<Member[]>([]);
   const [newMemberName, setNewMemberName] = useState<string>('');
-  const [showMatchingDialog, setShowMatchingDialog] = useState(false);
-  const [matchingResults, setMatchingResults] = useState<{
-    capturedImage: string;
-    bestMatch: Member | null;
-    bestSimilarity: number;
-    allMatches: Array<{member: Member, similarity: number}>;
-    threshold: number;
-  } | null>(null);
   const [localFaceCache, setLocalFaceCache] = useState<LocalCacheEntry[]>(() => {
     // Initialize from localStorage if available
     try {
@@ -97,10 +88,6 @@ const SimpleFaceScanner: React.FC = () => {
     return [];
   });
   const [lastSyncTime, setLastSyncTime] = useState<number>(0);
-
-  // Storage service availability tracking
-  const [sqliteEnabled, setSqliteEnabled] = useState(false);
-  const [localStorageEnabled, setLocalStorageEnabled] = useState(false);
 
   // Auto-save cache to localStorage whenever it changes
   useEffect(() => {
@@ -126,11 +113,12 @@ const SimpleFaceScanner: React.FC = () => {
     recommendation: string;
   } | null>(null);
 
-  // Toast states for automated feedback
-  const [showToast, setShowToast] = useState<boolean>(false);
-  const [toastMessage, setToastMessage] = useState<string>('');
-  const [toastColor, setToastColor] = useState<string>('success');
-  const [toastIcon, setToastIcon] = useState<string>('✅');
+
+  // Status-specific dialog states
+  const [showAccessGrantedDialog, setShowAccessGrantedDialog] = useState(false);
+  const [showBannedDialog, setShowBannedDialog] = useState(false);
+  const [showVIPDialog, setShowVIPDialog] = useState(false);
+  const [currentMatchedMember, setCurrentMatchedMember] = useState<{name: string; status: string; confidence: number; details?: string; photo_url?: string} | null>(null);
 
   // Member preloading states
   const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(false);
@@ -176,16 +164,6 @@ const SimpleFaceScanner: React.FC = () => {
     console.log('🔄 Resetting scanner...');
     setDetectedPerson(null);
     setCapturedImage('');
-  };
-
-  // Helper function to get the appropriate storage service
-  const getStorageService = () => {
-    if (sqliteEnabled) {
-      return localDatabase;
-    } else if (localStorageEnabled) {
-      return simpleLocalStorage;
-    }
-    return null;
   };
 
   // Auto-register new person with random ID
@@ -280,198 +258,217 @@ const SimpleFaceScanner: React.FC = () => {
     }
   }, [isLoading]);
 
+  // Handle app lifecycle changes (Android minimize/restore)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      console.log('👁️ Visibility changed, document.hidden:', document.hidden);
+
+      if (!document.hidden && !isLoading) {
+        // App came back into view - check camera status
+        setTimeout(() => {
+          const video = videoRef.current;
+          if (video && (!video.srcObject || video.readyState === 0)) {
+            console.log('🔄 Camera appears to be disconnected, restarting...');
+            setSystemStatus('Reconnecting camera...');
+            stopCamera();
+            setTimeout(() => {
+              startCamera();
+            }, 500);
+          } else if (video && video.paused) {
+            console.log('▶️ Video was paused, attempting to resume...');
+            video.play().catch(console.error);
+          }
+        }, 1000); // Give the app a moment to fully restore
+      }
+    };
+
+    const handleWindowFocus = () => {
+      console.log('🔍 Window focused');
+      if (!isLoading && !document.hidden) {
+        setTimeout(() => {
+          const video = videoRef.current;
+          if (video && video.readyState === 0) {
+            console.log('🔄 Restarting camera after window focus...');
+            stopCamera();
+            setTimeout(() => startCamera(), 500);
+          }
+        }, 500);
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [isLoading]);
+
+  // Helper function to add member with automatic descriptor computation
+  const addMemberWithDescriptor = async (memberData: Omit<Member, 'id' | 'created_at' | 'updated_at'>, precomputedDescriptor?: Float32Array) => {
+    try {
+      // Add member to database first
+      const newMember = await addMember(memberData);
+
+      // Use precomputed descriptor if provided, otherwise compute from photo
+      if (precomputedDescriptor) {
+        console.log(`💾 Using precomputed descriptor for new member: ${newMember.name}`);
+        await updateMemberDescriptor(newMember.id, precomputedDescriptor);
+        console.log(`✅ Precomputed descriptor saved for ${newMember.name}`);
+      } else if (memberData.photo_url) {
+        console.log(`🧮 Computing descriptor for new member: ${newMember.name}`);
+        const descriptor = await computeDescriptorFromImage(memberData.photo_url);
+
+        if (descriptor) {
+          await updateMemberDescriptor(newMember.id, descriptor);
+          console.log(`✅ Descriptor computed and saved for ${newMember.name}`);
+        } else {
+          console.log(`⚠️ Could not compute descriptor for ${newMember.name}`);
+        }
+      }
+
+      // Reload optimized recognition cache
+      await optimizedFaceRecognition.reloadMembers();
+      console.log('🔄 Optimized recognition cache updated');
+
+      return newMember;
+    } catch (error) {
+      console.error('❌ Error adding member with descriptor:', error);
+      throw error;
+    }
+  };
+
+  // Compute missing face descriptors for existing members
+  const computeMissingDescriptors = async () => {
+    try {
+      console.log('🧮 Computing missing face descriptors...');
+
+      const members = await getMembers();
+      const membersNeedingDescriptors = members.filter(
+        member => member.photo_url && !member.face_descriptor
+      );
+
+      console.log(`📊 Found ${membersNeedingDescriptors.length} members needing descriptors`);
+
+      let processed = 0;
+      for (const member of membersNeedingDescriptors) {
+        try {
+          processed++;
+          setSystemStatus(`Computing descriptor ${processed}/${membersNeedingDescriptors.length}: ${member.name}`);
+
+          if (member.photo_url) {
+            const descriptor = await computeDescriptorFromImage(member.photo_url);
+
+            if (descriptor) {
+              await updateMemberDescriptor(member.id, descriptor);
+              console.log(`✅ Computed descriptor for ${member.name}`);
+            } else {
+              console.log(`❌ Failed to compute descriptor for ${member.name}`);
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Error computing descriptor for ${member.name}:`, error);
+        }
+      }
+
+      console.log(`✅ Completed descriptor computation: ${processed} members processed`);
+    } catch (error) {
+      console.error('❌ Error in computeMissingDescriptors:', error);
+    }
+  };
+
   const initializeScanner = async () => {
     setIsLoading(true);
     setSyncStatus('Initializing system...');
-    setSystemStatus('Setting up ultra-fast face detection...');
-
-    // Overall initialization timeout (2 minutes max)
-    const initTimeout = setTimeout(() => {
-      console.error('⏰ INITIALIZATION TIMEOUT - Taking too long!');
-      setSystemStatus('Initialization timeout - check console');
-      setSyncStatus('Timeout error');
-      setIsLoading(false);
-    }, 120000); // 2 minutes
+    setSystemStatus('Setting up face detection...');
 
     try {
-      console.log('🚀 Starting ultra-fast scanner initialization with SQLite...');
-
-      // Step 1: Initialize face-api.js with timeout
+      // Initialize face-api.js for proper face recognition
+      console.log('🚀 Starting scanner initialization...');
       setSystemStatus('Initializing face-api.js...');
-      console.log('🧠 Starting face-api.js initialization...');
-      try {
-        await Promise.race([
-          faceApiService.initialize(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('face-api.js timeout')), 30000))
-        ]);
-        console.log('✅ face-api.js initialized successfully');
-      } catch (error) {
-        console.error('❌ face-api.js initialization failed:', error);
-        throw new Error(`face-api.js failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      await faceApiService.initialize();
+      console.log('✅ face-api.js initialized successfully');
+
+      // Initialize optimized face recognition service
+      console.log('⚡ Initializing optimized face recognition...');
+      setSystemStatus('Loading optimized face descriptors...');
+      await optimizedFaceRecognition.initialize();
+
+      const stats = optimizedFaceRecognition.getStats();
+      console.log(`✅ Optimized face recognition initialized: ${stats.membersWithDescriptors} members with descriptors`);
+
+      // Check if any members need descriptor computation
+      const needingDescriptors = await getMembersNeedingDescriptors();
+      if (needingDescriptors > 0) {
+        console.log(`⚠️ ${needingDescriptors} members need descriptor computation`);
+        setSystemStatus(`Computing descriptors for ${needingDescriptors} members...`);
+        await computeMissingDescriptors();
+        await optimizedFaceRecognition.reloadMembers();
       }
 
-      // Step 2: Initialize local database with SQLite first, fallback to simple storage
-      setSystemStatus('Initializing local database...');
-      console.log('📂 Starting database initialization (SQLite with fallback)...');
+      // Preload members from Supabase
+      console.log('📡 Starting member preloading...');
+      await preloadMembersFromSupabase();
+      console.log('✅ Member preloading completed');
 
-      try {
-        await Promise.race([
-          localDatabase.initialize(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('SQLite timeout')), 15000))
-        ]);
-        console.log('✅ Local SQLite database initialized');
-        setSqliteEnabled(true);
-        setLocalStorageEnabled(false);
-      } catch (error) {
-        console.error('❌ SQLite initialization failed:', error);
-        console.log('⚠️ Falling back to simple localStorage...');
-
-        // Try simple localStorage fallback
-        try {
-          await Promise.race([
-            simpleLocalStorage.initialize(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('LocalStorage timeout')), 5000))
-          ]);
-          console.log('✅ Simple localStorage initialized');
-          setSqliteEnabled(false);
-          setLocalStorageEnabled(true);
-        } catch (fallbackError) {
-          console.error('❌ LocalStorage fallback also failed:', fallbackError);
-          console.log('⚠️ Continuing with basic Supabase-only mode');
-          setSqliteEnabled(false);
-          setLocalStorageEnabled(false);
-        }
-      }
-
-      // Step 3: Conditional data sync based on available storage
-      if (sqliteEnabled || localStorageEnabled) {
-        setSystemStatus('Syncing data from Supabase to local storage...');
-        setSyncStatus('Syncing from cloud...');
-        console.log('🔄 Starting Supabase sync...');
-        try {
-          if (sqliteEnabled) {
-            await Promise.race([
-              localDatabase.syncFromSupabase(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase sync timeout')), 20000))
-            ]);
-            const stats = localDatabase.getStats();
-            console.log('📊 SQLite database stats:', stats);
-          } else if (localStorageEnabled) {
-            await Promise.race([
-              simpleLocalStorage.syncFromSupabase(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase sync timeout')), 20000))
-            ]);
-            const stats = simpleLocalStorage.getStats();
-            console.log('📊 Simple localStorage stats:', stats);
-          }
-        } catch (error) {
-          console.error('❌ Supabase sync failed:', error);
-          // Don't fail completely - continue with empty database
-          console.log('⚠️ Continuing without sync - will use empty local storage');
-        }
-      } else {
-        console.log('⚠️ Skipping sync - no local storage available, using basic Supabase-only mode');
-        setSyncStatus('Basic mode (direct Supabase)');
-      }
-
-      // Step 4: Initialize face recognition based on available storage
-      setSystemStatus('Initializing face recognition...');
-      console.log('⚡ Starting face recognition initialization...');
-      try {
-        if (sqliteEnabled || localStorageEnabled) {
-          // Use optimized face recognition with local storage
-          await Promise.race([
-            optimizedFaceRecognition.initialize(sqliteEnabled ? localDatabase : simpleLocalStorage),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Face recognition timeout')), 10000))
-          ]);
-
-          const faceStats = optimizedFaceRecognition.getStats();
-          console.log('⚡ Face recognition stats:', faceStats);
-        } else {
-          // Basic fallback - just load data directly from Supabase
-          console.log('📊 Loading data directly from Supabase (basic mode)...');
-          const dbMembers = await getMembers();
-          const localFaces: LocalFaceData[] = dbMembers
-            .filter(member => member.photo_url)
-            .map(member => ({
-              id: `local_${member.id}`,
-              name: member.name,
-              image: member.photo_url!,
-              timestamp: member.created_at,
-              supabaseId: member.id
-            }));
-          localStorage.setItem('simpleFaces', JSON.stringify(localFaces));
-          setKnownFaces(localFaces);
-          console.log(`✅ Basic fallback mode loaded ${localFaces.length} members from Supabase`);
-        }
-      } catch (error) {
-        console.error('❌ Face recognition initialization failed:', error);
-        // Continue anyway - app can still function for camera and basic operations
-        console.log('⚠️ Continuing with minimal functionality');
-      }
-
-      // Step 5: Initialize fallback face detection
-      console.log('🔍 Starting face detection initialization...');
+      // Initialize fallback face detection
       const detectionReady = await initializeFaceDetection();
       console.log('🔍 Fallback face detection initialized:', detectionReady);
 
-      // Step 6: Start camera with timeout
-      setSystemStatus('Starting camera...');
-      console.log('📷 Starting camera...');
-      try {
-        await Promise.race([
-          startCamera(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Camera timeout')), 10000))
-        ]);
-        console.log('✅ Camera started successfully');
-      } catch (error) {
-        console.error('❌ Camera initialization failed:', error);
-        setSystemStatus('Camera failed - check permissions');
-        // Continue without camera - app can still be used for settings
-      }
+      setSystemStatus('Loading faces from database...');
 
-      // Update final status based on available storage
-      if (sqliteEnabled) {
-        const finalStats = localDatabase.getStats();
-        setSyncStatus('Ready');
-        setSystemStatus(`⚡ Ultra-fast SQLite: ${finalStats.membersWithPhotos} faces cached for instant matching`);
-        console.log('🎉 Ultra-fast SQLite scanner initialization completed!');
-        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached locally for instant recognition`);
-      } else if (localStorageEnabled) {
-        const finalStats = simpleLocalStorage.getStats();
-        setSyncStatus('Ready');
-        setSystemStatus(`⚡ Fast storage: ${finalStats.membersWithPhotos} faces cached for quick matching`);
-        console.log('🎉 Fast localStorage scanner initialization completed!');
-        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached locally for quick recognition`);
-      } else {
-        const knownFacesCount = knownFaces.length;
-        setSyncStatus('Ready (Basic)');
-        setSystemStatus(`📷 Basic mode: ${knownFacesCount} faces loaded from database`);
-        console.log('🎉 Basic scanner initialization completed!');
-        console.log(`📊 Basic performance: ${knownFacesCount} members loaded from Supabase`);
-      }
+      // Load from database and populate local cache
+      const dbMembers = await getMembers();
+      console.log('📊 Loaded from database:', dbMembers.length, 'members');
 
-      // Clear the timeout since we completed successfully
-      clearTimeout(initTimeout);
+      // Convert database members to local format AND local cache
+      const localFaces: LocalFaceData[] = dbMembers
+        .filter(member => member.photo_url) // Only members with photos
+        .map(member => ({
+          id: `local_${member.id}`,
+          name: member.name,
+          image: member.photo_url!,
+          timestamp: member.created_at,
+          supabaseId: member.id
+        }));
+
+      // Convert to local cache entries (marked as synced since they're from DB)
+      const cacheEntries: LocalCacheEntry[] = localFaces.map(face => ({
+        id: `cache_db_${face.supabaseId}`,
+        name: face.name,
+        image: face.image,
+        timestamp: face.timestamp,
+        captureTime: new Date(face.timestamp).getTime(),
+        synced: true, // Already in database
+        descriptor: undefined // Will be extracted when needed for matching
+      }));
+
+      // Save to localStorage for offline access
+      localStorage.setItem('simpleFaces', JSON.stringify(localFaces));
+      setKnownFaces(localFaces);
+
+      // Populate local cache with existing database faces
+      setLocalFaceCache(prev => {
+        // Merge with existing cache, avoiding duplicates
+        const existingIds = new Set(prev.map(entry => entry.id));
+        const newEntries = cacheEntries.filter(entry => !existingIds.has(entry.id));
+        const merged = [...prev, ...newEntries];
+        console.log(`🗄️ Local cache populated with ${newEntries.length} database faces. Total cache: ${merged.length}`);
+        return merged;
+      });
+
+      setSyncStatus('Database synced');
+      setSystemStatus(`Loaded ${localFaces.length} faces from database`);
 
     } catch (error) {
-      console.error('❌ Scanner initialization failed:', error);
-      clearTimeout(initTimeout); // Clear timeout on error too
-      setSystemStatus(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setSyncStatus('Error - check console');
+      console.error('Database load failed, trying localStorage:', error);
 
-      // Try to start camera anyway for basic functionality
-      try {
-        console.log('🔧 Attempting fallback camera start...');
-        await Promise.race([
-          startCamera(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Fallback camera timeout')), 5000))
-        ]);
-        setSystemStatus('Basic camera mode (initialization failed)');
-      } catch (cameraError) {
-        console.error('❌ Camera fallback also failed:', cameraError);
-        setSystemStatus('Complete initialization failure - check console and permissions');
-      }
+      // Fallback to localStorage if database fails
+      await loadFromLocalStorage();
+      setSyncStatus('Offline mode');
     }
 
     setIsLoading(false);
@@ -1623,42 +1620,90 @@ const SimpleFaceScanner: React.FC = () => {
     } catch (error) {
       console.error('❌ Capture failed:', error);
       setSystemStatus('Capture failed. Please try again.');
-      setShowToast(true);
-      setToastMessage('Failed to capture face');
-      setToastColor('danger');
-      setToastIcon('❌');
     } finally {
       setIsCaptureMode(false);
       setProcessingLock(false);
     }
   };
 
-  // Fetch members and perform face matching
+  // Optimized face matching using pre-computed descriptors
   const fetchAndMatchMembers = async (capturedImage: string) => {
     try {
-      setSystemStatus('Fetching member data...');
+      setSystemStatus('Computing face descriptor...');
 
-      // Fetch all members from database
-      const members = await getMembers();
-      setMembersList(members);
+      // Step 1: Compute descriptor from captured image
+      const descriptor = await computeDescriptorFromVideo(videoRef.current!);
 
-      console.log(`📋 Loaded ${members.length} members from database`);
-      setSystemStatus('Comparing faces...');
+      if (!descriptor) {
+        setSystemStatus('No face detected. Please try again.');
+        return;
+      }
 
-      // Perform face matching - dialog will be shown from compareWithMembers
-      await compareWithMembers(capturedImage, members);
+      console.log('✅ Face descriptor computed, starting optimized recognition...');
+      setSystemStatus('Recognizing face...');
 
-      // User will make decision from matching dialog
-      setSystemStatus('Review face match results...');
-      console.log('🔍 Face matching completed, showing results dialog');
+      // Store descriptor for potential registration
+      setCapturedFaceDescriptor(descriptor);
+
+      // Step 2: Use optimized face recognition (ultra-fast!)
+      const result = await optimizedFaceRecognition.recognizeFace(descriptor);
+
+      console.log(`⚡ Recognition completed in ${result.processingTimeMs.toFixed(1)}ms`);
+
+      if (result.member && result.confidence > 70) {
+        // Match found! Show matching dialog or handle directly based on confidence
+        const member = result.member;
+        const confidence = result.confidence / 100; // Convert to 0-1 scale for consistency
+
+        console.log(`✅ OPTIMIZED MATCH: ${member.name} (${result.confidence.toFixed(1)}% confidence)`);
+
+        // Convert OptimizedMember to regular Member format for compatibility
+        const fullMember: Member = {
+          id: member.id,
+          name: member.name,
+          status: member.status,
+          photo_url: member.photo_url,
+          face_embedding: null,
+          face_descriptor: Array.from(member.face_descriptor),
+          details: '',
+          created_at: '',
+          updated_at: '',
+          organization_id: ''
+        };
+
+        // For all confidence matches, handle directly with status dialogs
+        // This shows immediate status-specific dialogs (Allowed/Banned/VIP) after scan
+        setMatchedMember(fullMember);
+        await handleMemberAccess(fullMember, confidence);
+
+        console.log(`✅ MATCH FOUND: ${member.name} (${result.confidence.toFixed(1)}% confidence) - Showing status dialog`);
+
+      } else {
+        // No match found - show registration prompt dialog
+        console.log(`❌ No optimized match found (best confidence: ${result.confidence.toFixed(1)}%)`);
+        setSystemStatus('Face not recognized. Register new member?');
+        setShowRegistrationPrompt(true);
+        console.log('🆕 No match found - showing registration prompt');
+      }
 
     } catch (error) {
-      console.error('❌ Member fetch/match failed:', error);
-      setSystemStatus('Database error. Please try again.');
-      setShowToast(true);
-      setToastMessage('Failed to access member database');
-      setToastColor('danger');
-      setToastIcon('❌');
+      console.error('❌ Optimized face recognition failed:', error);
+
+      // Fallback to legacy method if optimized fails
+      console.log('🔄 Falling back to legacy recognition method...');
+      try {
+        setSystemStatus('Falling back to detailed comparison...');
+        const members = await getMembers();
+        setMembersList(members);
+        await compareWithMembers(capturedImage, members);
+      } catch (fallbackError) {
+        console.error('❌ Fallback method also failed:', fallbackError);
+        setSystemStatus('Recognition failed. Please try again.');
+        setShowToast(true);
+        setToastMessage('Face recognition system error');
+        setToastColor('danger');
+        setToastIcon('❌');
+      }
     }
   };
 
@@ -1703,7 +1748,7 @@ const SimpleFaceScanner: React.FC = () => {
   const compareWithMembers = async (capturedImage: string, members: Member[]): Promise<{member: Member | null, similarity: number}> => {
     let bestMatch: Member | null = null;
     let bestSimilarity = 0;
-    const matchThreshold = 0.70; // 85% similarity threshold
+    const matchThreshold = 0.65; // 85% similarity threshold
     const allMatches: Array<{member: Member, similarity: number}> = [];
 
     console.log('🔍 Starting face comparison with', members.length, 'members');
@@ -1742,21 +1787,19 @@ const SimpleFaceScanner: React.FC = () => {
     // Sort results by similarity (highest first)
     allMatches.sort((a, b) => b.similarity - a.similarity);
 
-    // Store results for dialog
-    setMatchingResults({
-      capturedImage,
-      bestMatch: bestSimilarity > matchThreshold ? bestMatch : null,
-      bestSimilarity,
-      allMatches,
-      threshold: matchThreshold
-    });
+    // Handle match directly with status dialogs (fallback method)
+    if (bestSimilarity > matchThreshold && bestMatch) {
+      console.log('🎯 Fallback method found match - setting system status only (no duplicate dialogs)');
+      setMatchedMember(bestMatch);
 
-    // Show matching dialog
-    setShowMatchingDialog(true);
+      // Set status message only, don't call handleMemberAccess to avoid duplicate dialogs
 
-    // Play warning sound if banned member is detected
-    if (bestMatch && bestMatch.status === 'Banned') {
-      playBannedSound();
+      // Log attendance without showing dialogs
+      await logAttendance(bestMatch, bestSimilarity);
+    } else {
+      // No match found - show registration prompt
+      setSystemStatus('Face not recognized. Register new member?');
+      setShowRegistrationPrompt(true);
     }
 
     console.log('🎯 Best match:', bestMatch?.name, 'with', (bestSimilarity * 100).toFixed(1), '% similarity');
@@ -1845,55 +1888,78 @@ const SimpleFaceScanner: React.FC = () => {
   const handleMemberAccess = async (member: Member, similarity: number) => {
     console.log(`✅ Member identified: ${member.name} (${member.status})`);
 
-    const similarityPercent = (similarity * 100).toFixed(1);
+    // Set current matched member for dialog display
+    setCurrentMatchedMember({
+      name: member.name,
+      status: member.status || 'Member',
+      confidence: similarity,
+      details: (member as any).details, // Add details field for ban/VIP information
+      photo_url: member.photo_url // Add photo URL for displaying member picture
+    });
 
-    // switch (member.status) {
-    //   case 'Allowed':
-    //     setSystemStatus(`Welcome, ${member.name}!`);
-    //     setShowToast(true);
-    //     setToastMessage(`✅ Access Granted - ${member.name} (${similarityPercent}% match)`);
-    //     setToastColor('success');
-    //     setToastIcon('✅');
+    switch (member.status) {
+      case 'Allowed':
+        setSystemStatus(`Welcome, ${member.name}!`);
+        setShowAccessGrantedDialog(true);
 
-    //     // Log attendance
-    //     await logAttendance(member, similarity);
-    //     break;
+        // Auto-close Access Granted dialog after 3 seconds
+        setTimeout(() => {
+          setShowAccessGrantedDialog(false);
+          setCurrentMatchedMember(null);
+        }, 3000);
 
-    //   case 'Banned':
-    //     setSystemStatus(`Access denied for ${member.name}`);
-    //     setShowToast(true);
-    //     setToastMessage(`🚫 Access Denied - ${member.name} is banned`);
-    //     setToastColor('danger');
-    //     setToastIcon('🚫');
-    //     break;
+        // Log attendance
+        await logAttendance(member, similarity);
+        break;
 
-    //   case 'VIP':
-    //     setSystemStatus(`VIP Access: Welcome, ${member.name}!`);
-    //     setShowToast(true);
-    //     setToastMessage(`⭐ VIP Access - ${member.name} (${similarityPercent}% match)`);
-    //     setToastColor('warning');
-    //     setToastIcon('⭐');
+      case 'Banned':
+        setSystemStatus(`Access denied for ${member.name}`);
+        setShowBannedDialog(true);
 
-    //     // Log VIP attendance
-    //     await logAttendance(member, similarity);
-    //     break;
+        // Play warning sound for banned member
+        playBannedSound();
 
-    //   default:
-    //     setSystemStatus(`Member found: ${member.name}`);
-    //     setShowToast(true);
-    //     setToastMessage(`👤 Member Identified - ${member.name} (${similarityPercent}% match)`);
-    //     setToastColor('primary');
-    //     setToastIcon('👤');
+        // Auto-close Banned dialog after 6 seconds
+        setTimeout(() => {
+          setShowBannedDialog(false);
+          setCurrentMatchedMember(null);
+        }, 6000);
+        break;
 
-    //     await logAttendance(member, similarity);
-    //     break;
-    // }
+      case 'VIP':
+        setSystemStatus(`VIP Access: Welcome, ${member.name}!`);
+        setShowVIPDialog(true);
 
-    // Reset after 5 seconds
+        // Auto-close VIP dialog after 8 seconds
+        setTimeout(() => {
+          setShowVIPDialog(false);
+          setCurrentMatchedMember(null);
+        }, 8000);
+
+        // Log attendance for VIP
+        await logAttendance(member, similarity);
+        break;
+
+      default:
+        setSystemStatus(`Member found: ${member.name}`);
+        setShowAccessGrantedDialog(true); // Default to allowed access
+
+        // Auto-close dialog after 3 seconds
+        setTimeout(() => {
+          setShowAccessGrantedDialog(false);
+          setCurrentMatchedMember(null);
+        }, 3000);
+
+        // Log attendance
+        await logAttendance(member, similarity);
+        break;
+    }
+
+    // Reset system status and matched member after a delay
     setTimeout(() => {
       setSystemStatus('Ready to capture');
       setMatchedMember(null);
-    }, 5000);
+    }, 6000); // Slightly longer than dialog auto-close
   };
 
   // Log attendance for identified member
@@ -1931,63 +1997,29 @@ const SimpleFaceScanner: React.FC = () => {
     }
 
     try {
-      const storageService = getStorageService();
+      setSystemStatus('Registering new member...');
 
-      if (storageService) {
-        setSystemStatus('Registering new member to both databases...');
+      const newMember = {
+        name: newMemberName.trim(),
+        photo_url: capturedFaceImage,
+        status: 'Allowed' as const,
+        created_at: new Date().toISOString()
+      };
 
-        // Use dual-write system: Add to both local storage and Supabase simultaneously
-        const addedMember = await storageService.addMember({
-          name: newMemberName.trim(),
-          photo_url: capturedFaceImage,
-          status: 'Allowed'
-        });
+      // Use optimized registration with stored descriptor
+      const addedMember = await addMemberWithDescriptor(newMember, capturedFaceDescriptor || undefined);
 
-        if (addedMember) {
-          // Reload face recognition service to include the new member
-          console.log('🔄 Reloading face recognition with new member...');
-          await optimizedFaceRecognition.reloadMembers();
+      setShowToast(true);
+      setToastMessage(`✅ New member registered: ${newMemberName}`);
+      setToastColor('success');
+      setToastIcon('✅');
+      setSystemStatus(`Welcome, ${newMemberName}! (New member registered)`);
 
-          setShowToast(true);
-          setToastMessage(`✅ New member registered: ${newMemberName}`);
-          setToastColor('success');
-          setToastIcon('✅');
-          setSystemStatus(`Welcome, ${newMemberName}! (New member registered and synced)`);
+      // Log first-time attendance
+      await logAttendance(addedMember, 1.0);
 
-          // Log first-time attendance
-          await logAttendance(addedMember, 1.0);
-        } else {
-          throw new Error('Failed to register member to databases');
-        }
-      } else {
-        // Fallback to basic Supabase-only registration
-        console.log('⚠️ No local storage available, using direct Supabase registration');
-        setSystemStatus('Registering new member to database...');
-
-        // Add directly to Supabase
-        const { data: addedMember, error } = await supabase
-          .from('members')
-          .insert([{
-            name: newMemberName.trim(),
-            photo_url: capturedFaceImage,
-            status: 'Allowed'
-          }])
-          .select()
-          .single();
-
-        if (error || !addedMember) {
-          throw new Error(error?.message || 'Failed to register member');
-        }
-
-        setShowToast(true);
-        setToastMessage(`✅ New member registered: ${newMemberName}`);
-        setToastColor('success');
-        setToastIcon('✅');
-        setSystemStatus(`Welcome, ${newMemberName}! (New member registered)`);
-
-        // Log first-time attendance
-        await logAttendance(addedMember, 1.0);
-      }
+      // Set as matched member to show status
+      setMatchedMember(addedMember);
 
     } catch (error) {
       console.error('❌ Registration failed:', error);
@@ -1999,40 +2031,20 @@ const SimpleFaceScanner: React.FC = () => {
     } finally {
       setShowRegistrationPrompt(false);
       setCapturedFaceImage('');
+      setCapturedFaceDescriptor(null);
       setNewMemberName('');
       setTimeout(() => setSystemStatus('Ready to capture'), 3000);
     }
   };
 
-  // Handle confirming a match from the dialog
-  const handleConfirmMatch = async (member: Member, similarity: number) => {
-    setShowMatchingDialog(false);
-    setMatchedMember(member);
-    await handleMemberAccess(member, similarity);
-  };
-
-  // Handle rejecting all matches and registering new member
-  const handleRejectAllMatches = () => {
-    setShowMatchingDialog(false);
-    setShowRegistrationPrompt(true);
-    setSystemStatus('Face not recognized. Register new member?');
-  };
-
-  // Handle closing matching dialog without action
-  const handleCloseMatchingDialog = () => {
-    setShowMatchingDialog(false);
-    setMatchingResults(null);
-    setSystemStatus('Ready to capture');
-  };
 
   // Reset capture state
   const resetCaptureState = () => {
     setIsCaptureMode(false);
     setCapturedFaceImage('');
+    setCapturedFaceDescriptor(null);
     setMatchedMember(null);
     setShowRegistrationPrompt(false);
-    setShowMatchingDialog(false);
-    setMatchingResults(null);
     setNewMemberName('');
     setSystemStatus('Ready to capture');
     console.log('🔄 Capture state reset');
@@ -2486,26 +2498,10 @@ const SimpleFaceScanner: React.FC = () => {
 
       // Get member status from cache
       const memberInCache = localFaceCache.find(entry => entry.name === bestMatch.name);
-      const memberStatus = memberInCache?.status || 'Allowed';
+    
 
-      // Show appropriate toast based on status
-      if (memberStatus === 'Allowed') {
-        console.log(`✅ ALLOWED: ${bestMatch.name} is granted access`);
-        showToastMessage(`✅ Welcome ${bestMatch.name}!`, 'success', '✅', 4000);
-        setDetectedPerson(bestMatch.name);
-        setSystemStatus(`✅ Access granted: ${bestMatch.name}`);
-      } else if (memberStatus === 'Banned') {
-        console.log(`🚫 BANNED: ${bestMatch.name} is denied access`);
-        showToastMessage(`🚫 Access Denied - ${bestMatch.name} is banned`, 'danger', '🚫', 5000);
-        setDetectedPerson(`BANNED: ${bestMatch.name}`);
-        setSystemStatus(`🚫 Access denied: ${bestMatch.name} (Banned)`);
-      } else if (memberStatus === 'VIP') {
-        console.log(`⭐ VIP: ${bestMatch.name} gets VIP treatment`);
-        showToastMessage(`⭐ Welcome VIP ${bestMatch.name}!`, 'warning', '⭐', 4000);
-        setDetectedPerson(`VIP: ${bestMatch.name}`);
-        setSystemStatus(`⭐ VIP access: ${bestMatch.name}`);
-      }
-
+      // Status-based handling (toasts replaced by status dialogs)
+   
       // Reset after showing result
       setTimeout(() => {
         setDetectedPerson(null);
@@ -2519,55 +2515,35 @@ const SimpleFaceScanner: React.FC = () => {
       const randomId = `Person_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
       try {
-        const storageService = getStorageService();
+        // Add to local cache first
+        await addToLocalCache(randomId, analysisResults.capturedImage, false);
 
-        if (storageService) {
-          // Use dual-write system: Add to both local storage and Supabase simultaneously
-          console.log('💾 Auto-registering to both local and remote databases...');
-          const newMember = await storageService.addMember({
-            name: randomId,
-            photo_url: analysisResults.capturedImage,
-            status: 'Allowed' // Default new members to allowed
-          });
+        // Save to Supabase database
+        console.log('💾 Auto-registering to database...');
+        const newMember = await addMember({
+          name: randomId,
+          face_embedding: null,
+          status: 'Allowed', // Default new members to allowed
+          photo_url: analysisResults.capturedImage // Store the captured base64 image
+        });
 
-          if (newMember) {
-            console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id}) to both databases`);
+        if (newMember) {
+          console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id})`);
 
-            // Reload face recognition service to include the new member
-            console.log('🔄 Reloading face recognition with new member...');
-            await optimizedFaceRecognition.reloadMembers();
+          // Update local cache to mark as synced and set status
+          setLocalFaceCache(prev => prev.map(entry =>
+            entry.name === randomId
+              ? { ...entry, synced: true, status: 'Allowed' }
+              : entry
+          ));
 
-            // Show success toast
-            showToastMessage(`🆕 New member registered: ${randomId}`, 'success', '🆕', 4000);
-            setDetectedPerson(`NEW: ${randomId}`);
-            setSystemStatus(`🆕 New member registered: ${randomId} (synced to both databases)`);
-
-          } else {
-            throw new Error('Failed to save to databases');
-          }
-        } else {
-          // Fallback to basic Supabase-only registration
-          console.log('⚠️ No local storage available, using direct Supabase auto-registration');
-
-          // Add directly to Supabase
-          const { data: newMember, error } = await supabase
-            .from('members')
-            .insert([{
-              name: randomId,
-              photo_url: analysisResults.capturedImage,
-              status: 'Allowed'
-            }])
-            .select()
-            .single();
-
-          if (error || !newMember) {
-            throw new Error(error?.message || 'Failed to auto-register member');
-          }
-
-          console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id}) to Supabase`);
+          // Show success toast
           showToastMessage(`🆕 New member registered: ${randomId}`, 'success', '🆕', 4000);
           setDetectedPerson(`NEW: ${randomId}`);
-          setSystemStatus(`🆕 New member registered: ${randomId} (saved to database)`);
+          setSystemStatus(`🆕 New member registered: ${randomId}`);
+
+        } else {
+          throw new Error('Failed to save to database');
         }
 
       } catch (error) {
@@ -3452,12 +3428,12 @@ const SimpleFaceScanner: React.FC = () => {
         <IonToolbar style={{ '--background': 'linear-gradient(135deg, #1e40af 0%, #3730a3 50%, #581c87 100%)', '--color': 'white', '--border-width': '0', '--min-height': '70px' }}>
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center backdrop-blur-sm shadow-lg">
-                <span className="text-2xl">{organization?.name}</span>
+              <div className="w-12 h-12  rounded-xl flex items-center justify-center backdrop-blur-sm shadow-lg">
+                <span className="text-2xl"> {organization?.name}</span>
               </div>
-           
+             
             </div>
-
+          
             <div className="flex items-center space-x-3">
               <div className="bg-white/15 backdrop-blur-sm rounded-xl px-4 py-2 shadow-md">
                 <div className="flex items-center space-x-2">
@@ -3708,175 +3684,6 @@ const SimpleFaceScanner: React.FC = () => {
           </div>
         </div>
 
-        {/* Face Matching Results Dialog - Clean & Professional */}
-        {showMatchingDialog && matchingResults && (
-          <IonCard className="matching-dialog" style={{
-            position: 'fixed',
-            top: '15%',
-            left: '5%',
-            right: '5%',
-            zIndex: 1000,
-            maxHeight: '70vh',
-            overflow: 'auto',
-            boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
-            borderRadius: '16px',
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
-          }}>
-            <IonCardContent style={{ padding: '24px' }}>
-              <div className="text-center">
-
-                {/* Match Result Section */}
-                {matchingResults.bestMatch ? (
-                  matchingResults.bestMatch.status === 'Banned' ? (
-                    <div className="space-y-6">
-                      {/* Banned Header */}
-                      <div className="mb-4">
-                        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3 animate-pulse">
-                          <span className="text-2xl">🚫</span>
-                        </div>
-                        <h2 className="text-xl font-bold text-red-800 mb-1">ACCESS DENIED</h2>
-                        <p className="text-sm text-red-600">Member is banned from the system</p>
-                      </div>
-
-                      {/* Banned Member Info Card */}
-                      <div className="bg-red-50 p-4 rounded-xl border-2 border-red-200 shadow-sm">
-                        <div className="flex items-center space-x-4">
-                          <img
-                            src={matchingResults.bestMatch.photo_url}
-                            alt={matchingResults.bestMatch.name}
-                            className="w-16 h-16 rounded-full object-cover border-2 border-red-300 grayscale"
-                          />
-                          <div className="flex-1 text-left">
-                            <h3 className="text-lg font-semibold text-red-800">
-                              {matchingResults.bestMatch.name}
-                            </h3>
-                            <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-200 text-red-800">
-                              🔴 BANNED
-                            </div>
-                            {/* Ban details */}
-                            {matchingResults.bestMatch.details && (
-                              <div className="mt-2 p-3 bg-red-100 border border-red-300 rounded text-xs text-red-800">
-                                <strong>Ban Reason:</strong> {matchingResults.bestMatch.details}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-red-600">
-                              {(matchingResults.bestSimilarity * 100).toFixed(1)}%
-                            </div>
-                            <div className="text-xs text-red-500">Match</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Warning Message */}
-                      <div className="bg-red-100 border border-red-300 rounded-xl p-4">
-                        <div className="flex items-center">
-                          <span className="text-2xl mr-3">⚠️</span>
-                          <div>
-                            <h4 className="font-bold text-red-800">Security Alert</h4>
-                            <p className="text-sm text-red-700">This person has been denied access to the facility.</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {/* Success Header */}
-                      <div className="mb-4">
-                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <span className="text-2xl">✅</span>
-                        </div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-1">Access Granted</h2>
-                        <p className="text-sm text-gray-600">Face recognition successful</p>
-                      </div>
-
-                      {/* Member Info Card */}
-                      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                        <div className="flex items-center space-x-4">
-                          <img
-                            src={matchingResults.bestMatch.photo_url}
-                            alt={matchingResults.bestMatch.name}
-                            className="w-16 h-16 rounded-full object-cover border-2 border-green-200"
-                          />
-                          <div className="flex-1 text-left">
-                            <h3 className="text-lg font-semibold text-gray-800">
-                              {matchingResults.bestMatch.name}
-                            </h3>
-                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                              matchingResults.bestMatch.status === 'Allowed'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-purple-100 text-purple-800'
-                            }`}>
-                              {matchingResults.bestMatch.status === 'Allowed' ? '🟢' : '👑'} {matchingResults.bestMatch.status}
-                            </div>
-                            {/* Show VIP details if applicable */}
-                            {matchingResults.bestMatch.status === 'VIP' && matchingResults.bestMatch.details && (
-                              <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded text-xs text-purple-700">
-                                <strong>VIP Notes:</strong> {matchingResults.bestMatch.details}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-green-600">
-                              {(matchingResults.bestSimilarity * 100).toFixed(1)}%
-                            </div>
-                            <div className="text-xs text-gray-500">Confidence</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Action Button */}
-                      <button
-                        onClick={() => handleConfirmMatch(matchingResults.bestMatch!, matchingResults.bestSimilarity)}
-                        className="w-full py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 font-medium transition-colors"
-                      >
-                        Continue as {matchingResults.bestMatch.name}
-                      </button>
-                    </div>
-                  )
-                ) : (
-                  <div className="space-y-6">
-                    {/* No Match Header */}
-                    <div className="mb-4">
-                      <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <span className="text-2xl">👤</span>
-                      </div>
-                      <h2 className="text-xl font-bold text-gray-800 mb-1">Face Not Recognized</h2>
-                      <p className="text-sm text-gray-600">No matching member found</p>
-                    </div>
-
-                    {/* Captured Face Preview */}
-                    <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                      <img
-                        src={matchingResults.capturedImage}
-                        alt="Captured face"
-                        className="w-24 h-24 rounded-full object-cover border-2 border-orange-200 mx-auto mb-2"
-                      />
-                      <p className="text-sm text-gray-600">Would you like to register as a new member?</p>
-                    </div>
-
-                    {/* Register Button */}
-                    <button
-                      onClick={handleRejectAllMatches}
-                      className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-medium transition-colors"
-                    >
-                      Register as New Member
-                    </button>
-                  </div>
-                )}
-
-                {/* Cancel Button */}
-                <button
-                  onClick={handleCloseMatchingDialog}
-                  className="mt-4 px-6 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 font-medium text-sm transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </IonCardContent>
-          </IonCard>
-        )}
 
         {/* Registration Prompt Dialog - Mobile Optimized */}
         {showRegistrationPrompt && (
@@ -3952,22 +3759,7 @@ const SimpleFaceScanner: React.FC = () => {
         )}
 
         {/* Member Match Display */}
-        {matchedMember && (
-          <div className="mt-4 flex justify-center">
-            <div className="bg-white rounded-lg shadow-lg p-4 max-w-sm">
-              <div className="text-center">
-                <div className="mb-2">
-                  <span className="text-2xl">
-                    {matchedMember.status === 'Banned' ? '🚫' :
-                     matchedMember.status === 'VIP' ? '⭐' : '✅'}
-                  </span>
-                </div>
-                <h4 className="font-bold text-lg">{matchedMember.name}</h4>
-                <p className="text-sm text-gray-600 capitalize">{matchedMember.status || 'Member'}</p>
-              </div>
-            </div>
-          </div>
-        )}
+
 
         {/* Manual Analysis Dialog - COMMENTED OUT FOR AUTOMATION */}
         {false && showAnalysisDialog && analysisResults && (
@@ -4035,7 +3827,7 @@ const SimpleFaceScanner: React.FC = () => {
                         <div className="flex-1 text-left">
                           <div className="font-medium">{match.name}</div>
                           <div className={`text-sm ${match.isMatch ? 'text-green-700' : 'text-gray-600'}`}>
-                            {match.similarity.toFixed(1)}% similarity
+                            {(match.similarity * 100).toFixed(1)}% similarity
                             {match.distance !== undefined && (
                               <span className="text-xs"> (dist: {match.distance.toFixed(4)})</span>
                             )}
@@ -4083,17 +3875,170 @@ const SimpleFaceScanner: React.FC = () => {
           </>
         )}
 
-        {/* Toast Messages for Automated Feedback */}
-        <IonToast
-          isOpen={showToast}
-          onDidDismiss={() => setShowToast(false)}
-          message={`${toastIcon} ${toastMessage}`}
-          duration={4000}
-          color={toastColor}
-          position="top"
-          translucent={true}
-          cssClass="toast-custom"
-        />
+        {/* Access Granted Dialog for Allowed Members */}
+        {showAccessGrantedDialog && currentMatchedMember && (
+          <IonCard className="access-granted-dialog" style={{
+            position: 'fixed',
+            top: '20%',
+            left: '5%',
+            right: '5%',
+            zIndex: 1000,
+            maxHeight: '60vh',
+            borderRadius: '16px',
+            boxShadow: '0 0 30px rgba(34, 197, 94, 0.4)',
+            border: '2px solid #22c55e'
+          }}>
+            <IonCardContent style={{ padding: '32px' }}>
+              <div className="text-center">
+                {/* Success Animation */}
+                <div className="mb-6">
+                  <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                    <span className="text-4xl">✅</span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-green-800 mb-2">Access Granted</h2>
+                  <p className="text-green-600">Welcome! Entry approved</p>
+                </div>
+
+                {/* Member Info */}
+                <div className="bg-green-50 p-6 rounded-xl border border-green-200 mb-4">
+                  <div className="text-center">
+                    {/* Member Photo */}
+                    {currentMatchedMember.photo_url && (
+                      <img
+                        src={currentMatchedMember.photo_url}
+                        alt={currentMatchedMember.name}
+                        className="w-20 h-20 rounded-full object-cover border-4 border-green-300 mx-auto mb-3"
+                      />
+                    )}
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">{currentMatchedMember.name}</h3>
+                    <div className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-800 mb-2">
+                      🟢 {currentMatchedMember.status}
+                    </div>
+                    <div className="text-2xl font-bold text-green-600">
+                      {(currentMatchedMember.confidence * 100).toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-gray-600">Match Confidence</div>
+                  </div>
+                </div>
+
+                {/* Auto-close notice */}
+                <div className="text-sm text-gray-500">
+                  This dialog will close automatically in 5 seconds...
+                </div>
+              </div>
+            </IonCardContent>
+          </IonCard>
+        )}
+
+        {/* Banned Dialog with Warning - Focused on Ban Details */}
+        {showBannedDialog && currentMatchedMember && (
+          <IonCard className="banned-dialog" style={{
+            position: 'fixed',
+            top: '20%',
+            left: '5%',
+            right: '5%',
+            zIndex: 1000,
+            maxHeight: '60vh',
+            borderRadius: '16px',
+            boxShadow: '0 0 30px rgba(239, 68, 68, 0.5)',
+            border: '2px solid #ef4444',
+            backgroundColor: '#fef2f2'
+          }}>
+            <IonCardContent style={{ padding: '24px' }}>
+              <div className="text-center">
+                {/* Warning Animation */}
+                <div className="mb-4">
+                  <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3 animate-pulse border-4 border-red-300">
+                    <span className="text-4xl">🚫</span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-red-800 mb-2">ACCESS DENIED</h2>
+                  <p className="text-red-600 font-semibold">This member is banned from entry</p>
+                </div>
+
+                {/* Member Info with Ban Details */}
+                <div className="bg-red-100 p-4 rounded-xl border-2 border-red-300 mb-4">
+                  <div className="text-center">
+                    {/* Member Photo */}
+                    {currentMatchedMember.photo_url && (
+                      <img
+                        src={currentMatchedMember.photo_url}
+                        alt={currentMatchedMember.name}
+                        className="w-16 h-16 rounded-full object-cover border-3 border-red-400 mx-auto mb-3 grayscale"
+                      />
+                    )}
+                    <h3 className="text-xl font-bold text-red-800 mb-2">{currentMatchedMember.name}</h3>
+                    <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold bg-red-200 text-red-900 mb-3">
+                      🚫 BANNED
+                    </div>
+
+                    {/* Ban Details - Prominent Display */}
+                    {currentMatchedMember.details ? (
+                      <div className="mt-3 p-3 bg-red-50 border border-red-300 rounded-lg">
+                        <h4 className="font-bold text-red-800 text-sm mb-2">⚠️ Ban Reason:</h4>
+                        <p className="text-sm text-red-700 font-medium">{currentMatchedMember.details}</p>
+                      </div>
+                    ) : (
+                      <div className="mt-3 p-3 bg-red-50 border border-red-300 rounded-lg">
+                        <p className="text-sm text-red-700 font-medium">⚠️ Member access has been revoked</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </IonCardContent>
+          </IonCard>
+        )}
+
+        {/* VIP Dialog with Special Treatment - Simplified for Android */}
+        {showVIPDialog && currentMatchedMember && (
+          <IonCard className="vip-dialog" style={{
+            position: 'fixed',
+            top: '20%',
+            left: '5%',
+            right: '5%',
+            zIndex: 1000,
+            maxHeight: '60vh',
+            borderRadius: '16px',
+            boxShadow: '0 0 30px rgba(147, 51, 234, 0.5)',
+            border: '2px solid #a855f7',
+            background: 'linear-gradient(135deg, #fef3c7, #ede9fe)'
+          }}>
+            <IonCardContent style={{ padding: '24px' }}>
+              <div className="text-center">
+                {/* VIP Animation */}
+                <div className="mb-4">
+                  <div className="w-20 h-20 bg-gradient-to-br from-yellow-200 to-purple-200 rounded-full flex items-center justify-center mx-auto mb-3 border-4 border-yellow-400 animate-pulse">
+                    <span className="text-4xl">👑</span>
+                  </div>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-yellow-600 to-purple-600 bg-clip-text text-transparent mb-2">VIP ACCESS</h2>
+                  <p className="text-purple-600 font-semibold">Welcome, distinguished member!</p>
+                </div>
+
+                {/* VIP Member Info - Compact */}
+                <div className="bg-gradient-to-r from-yellow-50 to-purple-50 p-4 rounded-xl border-2 border-purple-300 mb-4">
+                  <div className="text-center">
+                    {/* VIP Member Photo */}
+                    {currentMatchedMember.photo_url && (
+                      <img
+                        src={currentMatchedMember.photo_url}
+                        alt={currentMatchedMember.name}
+                        className="w-16 h-16 rounded-full object-cover border-3 border-yellow-400 mx-auto mb-3"
+                      />
+                    )}
+                    <h3 className="text-xl font-bold bg-gradient-to-r from-yellow-700 to-purple-700 bg-clip-text text-transparent mb-2">{currentMatchedMember.name}</h3>
+                    <div className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-gradient-to-r from-yellow-200 to-purple-200 text-purple-900 mb-3">
+                      ⭐ VIP MEMBER ⭐
+                    </div>
+                    <div className="text-lg font-bold bg-gradient-to-r from-yellow-600 to-purple-600 bg-clip-text text-transparent">
+                      {(currentMatchedMember.confidence * 100).toFixed(1)}% Match
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </IonCardContent>
+          </IonCard>
+        )}
+
       </IonContent>
     </IonPage>
   );

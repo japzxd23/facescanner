@@ -21,7 +21,7 @@ export interface FaceMatchResult {
 
 class FaceApiService {
   private isInitialized = false;
-  private readonly SIMILARITY_THRESHOLD = 0.6;
+  private readonly SIMILARITY_THRESHOLD = 0.85; // SECURITY FIX: Raised from 0.6 to prevent false positives
   private readonly MIN_FACE_SIZE = 80;
   private readonly MIN_CONFIDENCE = 0.5;
 
@@ -172,36 +172,58 @@ class FaceApiService {
 
       let bestMatch: CachedFaceEmbedding | null = null;
       let bestSimilarity = 0;
+      const allSimilarities: Array<{name: string, similarity: number}> = [];
 
-      console.log(`🔍 Matching against ${cachedEmbeddings.length} cached faces`);
+      console.log(`🔒 SECURE FaceAPI MATCHING: Comparing against ${cachedEmbeddings.length} cached faces with threshold ${this.SIMILARITY_THRESHOLD}`);
 
+      // SECURITY FIX: Find the absolute best match first, then check threshold
       for (const embedding of cachedEmbeddings) {
         const embeddingArray = new Float32Array(embedding.embedding);
         const distance = faceapi.euclideanDistance(descriptor, embeddingArray);
         const similarity = 1 - distance;
 
-        if (similarity > bestSimilarity && similarity >= this.SIMILARITY_THRESHOLD) {
+        allSimilarities.push({ name: embedding.name, similarity: similarity });
+        console.log(`🔍 ${embedding.name}: ${similarity.toFixed(4)}`);
+
+        // Find the best match regardless of threshold (security fix)
+        if (similarity > bestSimilarity) {
           bestMatch = embedding;
           bestSimilarity = similarity;
         }
       }
 
-      if (bestMatch) {
-        console.log(`✅ Match found: ${bestMatch.name} (${bestSimilarity.toFixed(3)})`);
+      // Sort and log all matches for debugging
+      allSimilarities.sort((a, b) => b.similarity - a.similarity);
+      console.log(`🏆 All matches (sorted):`, allSimilarities.slice(0, 3));
+
+      // SECURITY: Only accept the best match if it meets the minimum threshold
+      if (bestMatch && bestSimilarity >= this.SIMILARITY_THRESHOLD) {
+        console.log(`✅ SECURE FaceAPI MATCH CONFIRMED: ${bestMatch.name} (similarity: ${bestSimilarity.toFixed(4)} >= ${this.SIMILARITY_THRESHOLD})`);
+
+        // Additional security check: ensure significant confidence
+        const secondBest = allSimilarities[1]?.similarity || 0;
+        const confidenceGap = bestSimilarity - secondBest;
+
+        if (confidenceGap < 0.1 && cachedEmbeddings.length > 1) {
+          console.log(`⚠️  LOW CONFIDENCE GAP: ${confidenceGap.toFixed(4)} - could be family member or false positive`);
+          console.log(`🔒 SECURITY REJECTION: Ambiguous match between similar faces`);
+          return { matched: false, similarity: bestSimilarity, confidence: 0 };
+        }
+
         return {
           matched: true,
           person: bestMatch,
           similarity: bestSimilarity,
           confidence: bestSimilarity
         };
-      } else {
-        console.log(`❌ No match found above threshold (${this.SIMILARITY_THRESHOLD})`);
-        return {
-          matched: false,
-          similarity: bestSimilarity,
-          confidence: 0
-        };
       }
+
+      console.log(`🔒 SECURITY REJECTION: Best match ${bestMatch?.name || 'none'} similarity ${bestSimilarity.toFixed(4)} < threshold ${this.SIMILARITY_THRESHOLD}`);
+      return {
+        matched: false,
+        similarity: bestSimilarity,
+        confidence: 0
+      };
     } catch (error) {
       console.error('Face matching error:', error);
       return {

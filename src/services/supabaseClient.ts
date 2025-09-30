@@ -10,8 +10,11 @@ export interface Member {
   id: string;
   name: string;
   face_embedding: number[] | null;
+  face_descriptor: number[] | null; // Pre-computed face descriptor for fast recognition
   status: 'Allowed' | 'Banned' | 'VIP';
-  photo_url?: string;
+  photo_url?: string; // Base64 photo data (fallback/cloud storage)
+  local_photo_path?: string; // Local filesystem path for fast access (mobile only)
+  details?: string; // Reason for status (e.g., ban reason, VIP notes, etc.)
   created_at: string;
   updated_at: string;
   organization_id?: string;
@@ -41,11 +44,13 @@ let currentOrganizationId: string | null = null;
 
 // Set organization context for multi-tenant operations
 export const setOrganizationContext = (organizationId: string) => {
+  console.log('🏢 Setting organization context in supabaseClient:', organizationId);
   currentOrganizationId = organizationId;
 };
 
 // Clear organization context (legacy mode)
 export const clearOrganizationContext = () => {
+  console.log('🧹 Clearing organization context in supabaseClient');
   currentOrganizationId = null;
 };
 
@@ -72,22 +77,88 @@ export const getCurrentUser = async () => {
 };
 
 // Member functions
+
+/**
+ * Get members WITHOUT photo_url for fast queries
+ * Use this when you have local images cached
+ */
+export const getMembersMetadata = async (): Promise<Member[]> => {
+  console.log('⚡ getMembersMetadata called (OPTIMIZED - no photo_url)');
+
+  let query = supabase
+    .from('members')
+    .select('id, name, face_embedding, face_descriptor, status, local_photo_path, details, created_at, updated_at, organization_id');
+
+  // Add organization filter if in multi-tenant mode
+  if (currentOrganizationId) {
+    console.log('🏢 Filtering members by organization_id:', currentOrganizationId);
+    query = query.eq('organization_id', currentOrganizationId);
+  } else {
+    // Legacy mode: get members with null organization_id
+    console.log('🔧 Using legacy mode - filtering for null organization_id');
+    query = query.is('organization_id', null);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('❌ Error in getMembersMetadata:', error);
+    throw error;
+  }
+
+  console.log('⚡ getMembersMetadata returning', data?.length || 0, 'members (without photo_url - FAST!)');
+  return data || [];
+};
+
+/**
+ * Get single member WITH photo_url (fallback for missing local images)
+ */
+export const getMemberPhoto = async (memberId: string): Promise<string | null> => {
+  console.log('📥 Fetching photo_url for member', memberId, '(fallback)');
+
+  const { data, error } = await supabase
+    .from('members')
+    .select('photo_url')
+    .eq('id', memberId)
+    .single();
+
+  if (error) {
+    console.error('❌ Error fetching member photo:', error);
+    return null;
+  }
+
+  return data?.photo_url || null;
+};
+
+/**
+ * Get members WITH photo_url (legacy/full query)
+ * Use this for initial sync or when local storage is not available
+ */
 export const getMembers = async (): Promise<Member[]> => {
+  console.log('📊 getMembers called with organization context:', currentOrganizationId);
+
   let query = supabase
     .from('members')
     .select('*');
 
   // Add organization filter if in multi-tenant mode
   if (currentOrganizationId) {
+    console.log('🏢 Filtering members by organization_id:', currentOrganizationId);
     query = query.eq('organization_id', currentOrganizationId);
   } else {
     // Legacy mode: get members with null organization_id
+    console.log('🔧 Using legacy mode - filtering for null organization_id');
     query = query.is('organization_id', null);
   }
 
   const { data, error } = await query.order('created_at', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    console.error('❌ Error in getMembers:', error);
+    throw error;
+  }
+
+  console.log('📈 getMembers returning', data?.length || 0, 'members');
   return data || [];
 };
 
@@ -131,6 +202,8 @@ export const deleteMember = async (id: string) => {
 
 // Attendance log functions
 export const getAttendanceLogs = async (limit = 50): Promise<AttendanceLog[]> => {
+  console.log('📊 getAttendanceLogs called with organization context:', currentOrganizationId);
+
   let query = supabase
     .from('attendance_logs')
     .select(`
@@ -140,9 +213,11 @@ export const getAttendanceLogs = async (limit = 50): Promise<AttendanceLog[]> =>
 
   // Add organization filter if in multi-tenant mode
   if (currentOrganizationId) {
+    console.log('🏢 Filtering attendance logs by organization_id:', currentOrganizationId);
     query = query.eq('organization_id', currentOrganizationId);
   } else {
     // Legacy mode: get logs with null organization_id
+    console.log('🔧 Using legacy mode - filtering attendance logs for null organization_id');
     query = query.is('organization_id', null);
   }
 
@@ -150,7 +225,12 @@ export const getAttendanceLogs = async (limit = 50): Promise<AttendanceLog[]> =>
     .order('timestamp', { ascending: false })
     .limit(limit);
 
-  if (error) throw error;
+  if (error) {
+    console.error('❌ Error in getAttendanceLogs:', error);
+    throw error;
+  }
+
+  console.log('📈 getAttendanceLogs returning', data?.length || 0, 'logs');
   return data || [];
 };
 
@@ -208,4 +288,111 @@ export const addAttendanceLog = async (memberID: string, confidence: number) => 
 
   if (error) throw error;
   return data;
+};
+
+// Optimized face descriptor functions for fast recognition
+export interface OptimizedMember {
+  id: string;
+  name: string;
+  face_descriptor: Float32Array;
+  status: 'Allowed' | 'Banned' | 'VIP';
+  photo_url?: string;
+}
+
+// Get members with pre-computed face descriptors (optimized for recognition)
+export const getMembersWithDescriptors = async (): Promise<OptimizedMember[]> => {
+  console.log('⚡ getMembersWithDescriptors called with organization context:', currentOrganizationId);
+
+  let query = supabase
+    .from('members')
+    .select('id, name, face_descriptor, status, photo_url');
+
+  // Add organization filter if in multi-tenant mode
+  if (currentOrganizationId) {
+    console.log('🏢 Filtering members by organization_id:', currentOrganizationId);
+    query = query.eq('organization_id', currentOrganizationId);
+  } else {
+    // Legacy mode: get members with null organization_id
+    console.log('🔧 Using legacy mode - filtering for null organization_id');
+    query = query.is('organization_id', null);
+  }
+
+  // Only get members with face descriptors (include all statuses: Allowed, Banned, VIP)
+  query = query
+    .not('face_descriptor', 'is', null);
+
+  const { data, error } = await query.order('name');
+
+  if (error) {
+    console.error('❌ Error in getMembersWithDescriptors:', error);
+    throw error;
+  }
+
+  if (!data) {
+    console.log('📊 No members with descriptors found');
+    return [];
+  }
+
+  // Convert JSON arrays back to Float32Array for fast comparison
+  const optimizedMembers: OptimizedMember[] = data.map(member => ({
+    id: member.id,
+    name: member.name,
+    face_descriptor: new Float32Array(member.face_descriptor),
+    status: member.status,
+    photo_url: member.photo_url
+  }));
+
+  console.log('⚡ getMembersWithDescriptors returning', optimizedMembers.length, 'optimized members');
+  return optimizedMembers;
+};
+
+// Update member with computed face descriptor
+export const updateMemberDescriptor = async (id: string, descriptor: Float32Array, photoUrl?: string) => {
+  const updates: any = {
+    face_descriptor: Array.from(descriptor), // Convert Float32Array to regular array for JSON storage
+    updated_at: new Date().toISOString()
+  };
+
+  if (photoUrl) {
+    updates.photo_url = photoUrl;
+  }
+
+  const { data, error } = await supabase
+    .from('members')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('❌ Error updating member descriptor:', error);
+    throw error;
+  }
+
+  console.log('✅ Updated face descriptor for member:', data.name);
+  return data;
+};
+
+// Get count of members needing descriptor computation
+export const getMembersNeedingDescriptors = async (): Promise<number> => {
+  let query = supabase
+    .from('members')
+    .select('id', { count: 'exact', head: true })
+    .not('photo_url', 'is', null)
+    .is('face_descriptor', null);
+
+  if (currentOrganizationId) {
+    query = query.eq('organization_id', currentOrganizationId);
+  } else {
+    query = query.is('organization_id', null);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    console.error('❌ Error counting members needing descriptors:', error);
+    return 0;
+  }
+
+  return count || 0;
 };

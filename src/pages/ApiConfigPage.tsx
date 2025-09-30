@@ -93,7 +93,7 @@ const ApiConfigPage: React.FC = () => {
   const clearConfiguration = () => {
     setApiKey('');
     setOrganizationInfo(null);
-    localStorage.removeItem('membershipScanSession');
+    localStorage.removeItem('FaceCheckSession');
   };
 
   const goToScanner = () => {
@@ -146,7 +146,7 @@ const ApiConfigPage: React.FC = () => {
                 Configure Your Scanner
               </IonCardTitle>
               <p style={{ color: '#9ca3af', margin: '10px 0 0 0' }}>
-                Enter your organization's API key to connect to MembershipScan
+                Enter your organization's API key to connect to FaceCheck
               </p>
             </IonCardHeader>
           </IonCard>
@@ -233,7 +233,7 @@ const ApiConfigPage: React.FC = () => {
             <IonCardContent>
               <div style={{ color: '#9ca3af', fontSize: '14px' }}>
                 <ol style={{ paddingLeft: '20px', lineHeight: '1.6' }}>
-                  <li>Visit the MembershipScan website</li>
+                  <li>Visit the FaceCheck website</li>
                   <li>Sign up for an account or log in</li>
                   <li>Go to your organization dashboard</li>
                   <li>Copy your API key from the dashboard</li>

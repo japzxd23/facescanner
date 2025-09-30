@@ -1,10 +1,11 @@
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-This is **MembershipScan** - a freemium SaaS face recognition system built with React, Ionic, and TensorFlow.js. The platform provides organizations with AI-powered face recognition for member identification and attendance tracking, featuring multi-tenant architecture with API key authentication and freemium business model.
+This is a **FaceCheck** application - a face recognition attendance system built with React, Ionic, and TensorFlow.js. The app captures facial biometrics for member identification and attendance tracking, with a Supabase backend for data storage.
 
 ## Architecture
 
@@ -19,28 +20,17 @@ This is **MembershipScan** - a freemium SaaS face recognition system built with 
 - **TensorFlow.js** with WebGL backend - Face detection and processing
 - **MediaPipe Face Detector** - Primary face detection model
 - **Custom embedding system** - Face feature extraction using keypoints
-- **Cosine similarity matching** - Face recognition algorithm (threshold: 0.91)
+- **Cosine similarity matching** - Face recognition algorithm (threshold: 0.8)
 
 ### Backend & Data
 - **Supabase** - Backend-as-a-Service (auth, database, storage)
 - **PostgreSQL** - Database with face embeddings stored as number arrays
 - **Environment variables** for Supabase configuration
 
-### Key Application Flow (SaaS Multi-Tenant)
-1. **Landing Page** (`/`) - Marketing homepage with pricing and features
-2. **User Authentication** (`/signup`, `/login`) - Organization account creation and login
-3. **Dashboard** (`/dashboard`) - Organization management and analytics
-4. **Camera Scanner** (`/camera`) - AI face detection interface (multi-tenant aware)
-5. **Admin System** (`/admin`) - Legacy member management for backward compatibility
-6. **Face Recognition Pipeline**: Detect → Extract embeddings → Match against stored faces → Log attendance → Apply tenant isolation
-
-### Multi-Tenant Architecture
-- **Organizations Table**: Tenant isolation with API keys and plan limits
-- **Organization Users**: Account management with bcrypt password hashing
-- **Member/Attendance Isolation**: All data scoped to organization ID
-- **Freemium Model**: 10 members free, Pro (100 members $29/mo), Enterprise (unlimited $99/mo)
-- **API Key Authentication**: For mobile apps and integrations
-- **Row Level Security**: Database-level tenant isolation with Supabase RLS
+### Key Application Flow
+1. **Camera Scanner** (`/scanner`) - Main face detection interface
+2. **Admin System** - Member management and attendance logs
+3. **Face Recognition Pipeline**: Detect → Extract embeddings → Match against stored faces → Log attendance
 
 ## Development Commands
 
@@ -95,7 +85,7 @@ src/
 - `matchFace()` - Compare against stored embeddings
 
 ### Configuration
-- **Recognition threshold**: 0.91 similarity score
+- **Recognition threshold**: 0.8 similarity score
 - **Backend**: WebGL for GPU acceleration
 - **Model**: MediaPipe Face Detector (tfjs runtime)
 

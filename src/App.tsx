@@ -29,15 +29,23 @@ import './theme/dark-theme-fixes.css';
 
 /* Pages */
 import LandingPage from './pages/LandingPage';
-import SignupPage from './pages/SignupPage';
+import SignupPage from './pages/SignUpPage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CameraScanner from './pages/CameraScanner';
+import ImprovedCameraScanner from './pages/ImprovedCameraScanner';
+import FaceApiWebcamScanner from './pages/FaceApiWebcamScanner';
+import MainScanner from './pages/MainScanner';
+import SimpleFaceScanner from './pages/SimpleFaceScanner';
+import BlazingFastScanner from './pages/BlazingFastScanner';
+import PerformanceComparison from './pages/PerformanceComparison';
+import SystemTest from './pages/SystemTest';
 
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import MemberManagement from './pages/MemberManagement';
 import AttendanceLogs from './pages/AttendanceLogs';
+import AdminSettings from './pages/AdminSettings';
 
 /* Contexts */
 import { OrganizationProvider } from './contexts/OrganizationContext';
@@ -69,7 +77,35 @@ const App: React.FC = () => (
 
         {/* Scanner Routes */}
         <Route exact path="/camera">
-          <CameraScanner />
+          <SimpleFaceScanner />
+        </Route>
+
+        <Route exact path="/improved-camera">
+          <ImprovedCameraScanner />
+        </Route>
+
+        <Route exact path="/faceapi-webcam">
+          <FaceApiWebcamScanner />
+        </Route>
+
+        <Route exact path="/main-scanner">
+          <MainScanner />
+        </Route>
+
+        <Route exact path="/simple-scanner">
+          <SimpleFaceScanner />
+        </Route>
+
+        <Route exact path="/blazing-fast">
+          <BlazingFastScanner />
+        </Route>
+
+        <Route exact path="/performance-test">
+          <PerformanceComparison />
+        </Route>
+
+        <Route exact path="/system-test">
+          <SystemTest />
         </Route>
 
         <Route exact path="/scanner">
@@ -88,6 +124,9 @@ const App: React.FC = () => (
         </Route>
         <Route exact path="/admin/logs">
           <AttendanceLogs />
+        </Route>
+        <Route exact path="/admin/settings">
+          <AdminSettings />
         </Route>
         <Route exact path="/admin">
           <Redirect to="/admin/dashboard" />

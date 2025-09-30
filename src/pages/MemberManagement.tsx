@@ -51,7 +51,8 @@ import {
   close
 } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
-import { getMembers, addMember, updateMember, deleteMember, Member } from '../services/supabaseClient';
+import { getMembers, addMember, updateMember, deleteMember, Member, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
+import { useOrganization } from '../contexts/OrganizationContext';
 
 const MemberManagement: React.FC = () => {
   const [members, setMembers] = useState<Member[]>([]);
@@ -71,17 +72,20 @@ const MemberManagement: React.FC = () => {
     name: '',
     email: '',
     phone: '',
-    status: 'Allowed' as 'Allowed' | 'VIP' | 'Banned'
+    status: 'Allowed' as 'Allowed' | 'VIP' | 'Banned',
+    details: ''
   });
   const [editMember, setEditMember] = useState({
     id: '',
     name: '',
     email: '',
     phone: '',
-    status: 'Allowed' as 'Allowed' | 'VIP' | 'Banned'
+    status: 'Allowed' as 'Allowed' | 'VIP' | 'Banned',
+    details: ''
   });
 
   const history = useHistory();
+  const { organization, isLegacyMode } = useOrganization();
 
   useEffect(() => {
     checkAuth();
@@ -95,7 +99,7 @@ const MemberManagement: React.FC = () => {
   const checkAuth = () => {
     try {
       // Check for unified session first
-      const sessionData = localStorage.getItem('membershipScanSession');
+      const sessionData = localStorage.getItem('FaceCheckSession');
       if (sessionData) {
         const session = JSON.parse(sessionData);
         if (session.user && (session.organization || session.isLegacyMode)) {
@@ -124,6 +128,15 @@ const MemberManagement: React.FC = () => {
   const loadMembers = async () => {
     setLoading(true);
     try {
+      // Set organization context for database queries
+      if (!isLegacyMode && organization) {
+        console.log('🏢 Setting organization context for MemberManagement:', organization.name, 'ID:', organization.id);
+        setOrganizationContext(organization.id);
+      } else if (isLegacyMode) {
+        console.log('🔧 Using legacy mode in MemberManagement - clearing organization context');
+        clearOrganizationContext();
+      }
+
       const data = await getMembers();
       setMembers(data);
     } catch (error) {
@@ -218,7 +231,8 @@ const MemberManagement: React.FC = () => {
         name: editMember.name.trim(),
         email: editMember.email.trim() || null,
         phone: editMember.phone.trim() || null,
-        status: editMember.status
+        status: editMember.status,
+        details: editMember.details.trim() || null
       });
 
       setShowEditModal(false);
@@ -267,7 +281,8 @@ const MemberManagement: React.FC = () => {
       name: member.name,
       email: member.email || '',
       phone: member.phone || '',
-      status: member.status
+      status: member.status,
+      details: member.details || ''
     });
     setSelectedMember(member);
     setShowEditModal(true);
@@ -279,21 +294,54 @@ const MemberManagement: React.FC = () => {
   };
 
   const handleQuickStatusChange = async (member: Member, newStatus: 'Allowed' | 'VIP' | 'Banned') => {
-    setLoading(true);
-    try {
-      await updateMember(member.id, { status: newStatus });
-      await loadMembers();
+    // If banning a member, prompt for reason
+    if (newStatus === 'Banned') {
+      const reason = prompt(`Enter reason for banning ${member.name}:`);
+      if (reason === null) return; // User cancelled
 
-      setAlertMessage(`${member.name} status changed to ${newStatus}`);
-      setAlertHeader('Status Updated');
-      setShowAlert(true);
-    } catch (error: any) {
-      console.error('Error updating status:', error);
-      setAlertMessage(error.message || 'Failed to update status. Please try again.');
-      setAlertHeader('Error');
-      setShowAlert(true);
-    } finally {
-      setLoading(false);
+      setLoading(true);
+      try {
+        await updateMember(member.id, {
+          status: newStatus,
+          details: reason.trim() || 'No reason provided'
+        });
+        await loadMembers();
+
+        setAlertMessage(`${member.name} has been banned${reason ? `: ${reason}` : ''}`);
+        setAlertHeader('Member Banned');
+        setShowAlert(true);
+      } catch (error: any) {
+        console.error('Error updating status:', error);
+        setAlertMessage(error.message || 'Failed to ban member. Please try again.');
+        setAlertHeader('Error');
+        setShowAlert(true);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // For Allowed or VIP, no special handling needed
+      setLoading(true);
+      try {
+        const updates: any = { status: newStatus };
+        // Clear details when changing from Banned to other status
+        if (member.status === 'Banned') {
+          updates.details = null;
+        }
+
+        await updateMember(member.id, updates);
+        await loadMembers();
+
+        setAlertMessage(`${member.name} status changed to ${newStatus}`);
+        setAlertHeader('Status Updated');
+        setShowAlert(true);
+      } catch (error: any) {
+        console.error('Error updating status:', error);
+        setAlertMessage(error.message || 'Failed to update status. Please try again.');
+        setAlertHeader('Error');
+        setShowAlert(true);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -364,13 +412,13 @@ const MemberManagement: React.FC = () => {
           <IonRefresherContent></IonRefresherContent>
         </IonRefresher>
 
-        <div style={{ padding: '24px' }}>
+        <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
           {/* Statistics Cards */}
           <IonGrid>
             <IonRow>
-              <IonCol size="6" sizeMd="3">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '20px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 20px)' }}>
                     <IonIcon icon={person} style={{ fontSize: '32px', color: 'var(--ion-color-primary)', marginBottom: '8px' }} />
                     <h2 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                       {stats.total}
@@ -382,9 +430,9 @@ const MemberManagement: React.FC = () => {
                 </IonCard>
               </IonCol>
 
-              <IonCol size="6" sizeMd="3">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '20px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 20px)' }}>
                     <IonIcon icon={checkmarkCircle} style={{ fontSize: '32px', color: 'var(--ion-color-success)', marginBottom: '8px' }} />
                     <h2 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                       {stats.allowed}
@@ -396,9 +444,9 @@ const MemberManagement: React.FC = () => {
                 </IonCard>
               </IonCol>
 
-              <IonCol size="6" sizeMd="3">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '20px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 20px)' }}>
                     <IonIcon icon={star} style={{ fontSize: '32px', color: 'var(--ion-color-tertiary)', marginBottom: '8px' }} />
                     <h2 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                       {stats.vip}
@@ -410,9 +458,9 @@ const MemberManagement: React.FC = () => {
                 </IonCard>
               </IonCol>
 
-              <IonCol size="6" sizeMd="3">
+              <IonCol size="12" sizeSm="6" sizeMd="3">
                 <IonCard className="enterprise-card">
-                  <IonCardContent style={{ textAlign: 'center', padding: '20px' }}>
+                  <IonCardContent style={{ textAlign: 'center', padding: 'clamp(16px, 3vw, 20px)' }}>
                     <IonIcon icon={ban} style={{ fontSize: '32px', color: 'var(--ion-color-danger)', marginBottom: '8px' }} />
                     <h2 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '800', color: 'var(--ion-text-color)', fontFamily: 'Inter, system-ui, sans-serif' }}>
                       {stats.banned}
@@ -514,9 +562,36 @@ const MemberManagement: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    border: '2px solid var(--enterprise-border-subtle)'
+                    border: '2px solid var(--enterprise-border-subtle)',
+                    overflow: 'hidden',
+                    flexShrink: 0
                   }}>
-                    <IonIcon icon={getStatusIcon(member.status)} style={{ fontSize: '28px', color: `var(--ion-color-${getStatusColor(member.status)})` }} />
+                    {member.photo_url ? (
+                      <img
+                        src={member.photo_url}
+                        alt={member.name}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          borderRadius: '50%'
+                        }}
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent && !parent.querySelector('ion-icon')) {
+                            const icon = document.createElement('ion-icon');
+                            icon.name = getStatusIcon(member.status).split('/').pop()?.replace('.svg', '') || 'person';
+                            icon.style.fontSize = '28px';
+                            icon.style.color = `var(--ion-color-${getStatusColor(member.status)})`;
+                            parent.appendChild(icon);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <IonIcon icon={getStatusIcon(member.status)} style={{ fontSize: '28px', color: `var(--ion-color-${getStatusColor(member.status)})` }} />
+                    )}
                   </div>
 
                   <IonLabel style={{ marginLeft: '16px' }}>
@@ -579,9 +654,9 @@ const MemberManagement: React.FC = () => {
                     </div>
                   </IonLabel>
 
-                  <div slot="end" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {/* Quick Status Change Buttons */}
-                    <div style={{ display: 'flex', gap: '4px' }}>
+                  <div slot="end" style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 'fit-content' }}>
+                    {/* Quick Status Change Buttons - Responsive */}
+                    <div style={{ display: 'flex', gap: '2px' }} className="status-buttons">
                       {member.status !== 'Allowed' && (
                         <IonButton
                           size="small"
@@ -589,8 +664,9 @@ const MemberManagement: React.FC = () => {
                           color="success"
                           onClick={() => handleQuickStatusChange(member, 'Allowed')}
                           title="Set as Allowed"
+                          style={{ '--padding-start': '8px', '--padding-end': '8px' }}
                         >
-                          <IonIcon icon={checkmarkCircle} />
+                          <IonIcon icon={checkmarkCircle} style={{ fontSize: '18px' }} />
                         </IonButton>
                       )}
                       {member.status !== 'VIP' && (
@@ -600,8 +676,9 @@ const MemberManagement: React.FC = () => {
                           color="tertiary"
                           onClick={() => handleQuickStatusChange(member, 'VIP')}
                           title="Set as VIP"
+                          style={{ '--padding-start': '8px', '--padding-end': '8px' }}
                         >
-                          <IonIcon icon={star} />
+                          <IonIcon icon={star} style={{ fontSize: '18px' }} />
                         </IonButton>
                       )}
                       {member.status !== 'Banned' && (
@@ -611,29 +688,34 @@ const MemberManagement: React.FC = () => {
                           color="danger"
                           onClick={() => handleQuickStatusChange(member, 'Banned')}
                           title="Ban Member"
+                          style={{ '--padding-start': '8px', '--padding-end': '8px' }}
                         >
-                          <IonIcon icon={ban} />
+                          <IonIcon icon={ban} style={{ fontSize: '18px' }} />
                         </IonButton>
                       )}
                     </div>
 
-                    {/* Edit/Delete Buttons */}
-                    <div style={{ display: 'flex', gap: '4px' }}>
+                    {/* Edit/Delete Buttons - Always visible */}
+                    <div style={{ display: 'flex', gap: '2px' }}>
                       <IonButton
                         size="small"
                         fill="clear"
                         color="primary"
                         onClick={() => openEditModal(member)}
+                        title="Edit Member"
+                        style={{ '--padding-start': '8px', '--padding-end': '8px' }}
                       >
-                        <IonIcon icon={create} />
+                        <IonIcon icon={create} style={{ fontSize: '18px' }} />
                       </IonButton>
                       <IonButton
                         size="small"
                         fill="clear"
                         color="danger"
                         onClick={() => openDeleteConfirm(member)}
+                        title="Delete Member"
+                        style={{ '--padding-start': '8px', '--padding-end': '8px' }}
                       >
-                        <IonIcon icon={trash} />
+                        <IonIcon icon={trash} style={{ fontSize: '18px' }} />
                       </IonButton>
                     </div>
                   </div>
@@ -700,9 +782,9 @@ const MemberManagement: React.FC = () => {
             </IonToolbar>
           </IonHeader>
           <IonContent style={{ '--background': 'var(--enterprise-surface-secondary)' }}>
-            <div style={{ padding: '24px' }}>
+            <div style={{ padding: 'clamp(16px, 4vw, 24px)' }}>
               <IonCard className="enterprise-card">
-                <IonCardContent style={{ padding: '24px' }}>
+                <IonCardContent style={{ padding: 'clamp(16px, 4vw, 24px)' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div>
                       <IonLabel style={{
@@ -809,7 +891,7 @@ const MemberManagement: React.FC = () => {
                       </IonSelect>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+                    <div style={{ display: 'flex', flexDirection: window.innerWidth <= 768 ? 'column' : 'row', gap: '12px', marginTop: '20px' }}>
                       <IonButton
                         expand="block"
                         color="primary"
@@ -873,9 +955,9 @@ const MemberManagement: React.FC = () => {
             </IonToolbar>
           </IonHeader>
           <IonContent style={{ '--background': 'var(--enterprise-surface-secondary)' }}>
-            <div style={{ padding: '24px' }}>
+            <div style={{ padding: 'clamp(16px, 4vw, 24px)' }}>
               <IonCard className="enterprise-card">
-                <IonCardContent style={{ padding: '24px' }}>
+                <IonCardContent style={{ padding: 'clamp(16px, 4vw, 24px)' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div>
                       <IonLabel style={{
@@ -982,7 +1064,36 @@ const MemberManagement: React.FC = () => {
                       </IonSelect>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+                    {/* Details/Reason Field - Show for Banned or VIP */}
+                    {(editMember.status === 'Banned' || editMember.status === 'VIP') && (
+                      <div>
+                        <IonLabel style={{
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: 'var(--ion-color-medium)',
+                          fontFamily: 'Inter, system-ui, sans-serif'
+                        }}>
+                          {editMember.status === 'Banned' ? 'Ban Reason' : 'VIP Notes'}
+                        </IonLabel>
+                        <IonInput
+                          value={editMember.details}
+                          onIonInput={(e) => setEditMember(prev => ({ ...prev, details: e.detail.value! }))}
+                          placeholder={editMember.status === 'Banned' ? 'Enter reason for ban...' : 'Enter VIP notes...'}
+                          style={{
+                            '--background': 'var(--enterprise-surface-secondary)',
+                            '--border-radius': 'var(--enterprise-radius-md)',
+                            '--padding-start': '16px',
+                            '--padding-end': '16px',
+                            '--padding-top': '12px',
+                            '--padding-bottom': '12px',
+                            fontFamily: 'Inter, system-ui, sans-serif',
+                            marginTop: '8px'
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: window.innerWidth <= 768 ? 'column' : 'row', gap: '12px', marginTop: '20px' }}>
                       <IonButton
                         expand="block"
                         color="primary"

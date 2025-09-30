@@ -44,7 +44,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     // Check for session data on app start
-    const sessionJson = localStorage.getItem('membershipScanSession');
+    const sessionJson = localStorage.getItem('FaceCheckSession');
     if (sessionJson) {
       try {
         const session = JSON.parse(sessionJson);
@@ -56,7 +56,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
       } catch (error) {
         console.error('Invalid session data:', error);
-        localStorage.removeItem('membershipScanSession');
+        localStorage.removeItem('FaceCheckSession');
       }
     } else {
       // If no session, enable legacy mode for backwards compatibility
@@ -75,7 +75,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       organization: org,
       user: userData
     };
-    localStorage.setItem('membershipScanSession', JSON.stringify(sessionData));
+    localStorage.setItem('FaceCheckSession', JSON.stringify(sessionData));
   };
 
   const clearSession = () => {
@@ -83,7 +83,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setUser(null);
     setIsAuthenticated(false);
     setIsLegacyMode(true);
-    localStorage.removeItem('membershipScanSession');
+    localStorage.removeItem('FaceCheckSession');
   };
 
   return (

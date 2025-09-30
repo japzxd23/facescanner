@@ -1,4 +1,4 @@
--- MembershipScan Multi-Tenant Database Schema Update
+-- FaceCheck Multi-Tenant Database Schema Update
 -- This migration safely updates the existing schema for SaaS multi-tenant structure
 
 -- 1. Create Organizations table if it doesn't exist

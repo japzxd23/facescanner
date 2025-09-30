@@ -135,7 +135,7 @@ const LoginPage: React.FC = () => {
         organization: user.organizations
       };
 
-      localStorage.setItem('membershipScanSession', JSON.stringify(sessionData));
+      localStorage.setItem('FaceCheckSession', JSON.stringify(sessionData));
 
       // Force full page refresh to clear cached state and ensure buttons work
       window.location.href = '/admin';
@@ -189,7 +189,7 @@ const LoginPage: React.FC = () => {
         organization: user.organizations
       };
 
-      localStorage.setItem('membershipScanSession', JSON.stringify(sessionData));
+      localStorage.setItem('FaceCheckSession', JSON.stringify(sessionData));
       window.location.href = '/admin';
 
     } catch (error: any) {
@@ -273,7 +273,7 @@ const LoginPage: React.FC = () => {
                 marginBottom: '8px',
                 fontFamily: 'Inter, system-ui, sans-serif'
               }}>
-                MembershipScan
+                FaceCheck
               </div>
 
               <h1 style={{
@@ -525,7 +525,7 @@ const LoginPage: React.FC = () => {
                 }}>
                   Need help? Contact support at{' '}
                   <span style={{ color: 'var(--ion-color-primary)' }}>
-                    help@membershipscan.com
+                    help@FaceCheck.com
                   </span>
                 </span>
               </div>

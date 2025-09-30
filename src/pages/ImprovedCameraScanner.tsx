@@ -16,12 +16,9 @@ import {
   IonItem,
   IonLabel,
 } from '@ionic/react';
-import { supabase, Member, getMembers, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
+import { supabase, Member, addMember, getMembers, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
 import { useOrganization } from '../contexts/OrganizationContext';
 import { faceApiService, FaceDetectionResult } from '../services/faceApiService';
-import { optimizedFaceRecognition } from '../services/optimizedFaceRecognition';
-import { localDatabase } from '../services/localDatabase';
-import { simpleLocalStorage } from '../services/simpleLocalStorage';
 import * as faceapi from 'face-api.js';
 
 interface LocalFaceData {
@@ -98,10 +95,6 @@ const SimpleFaceScanner: React.FC = () => {
   });
   const [lastSyncTime, setLastSyncTime] = useState<number>(0);
 
-  // Storage service availability tracking
-  const [sqliteEnabled, setSqliteEnabled] = useState(false);
-  const [localStorageEnabled, setLocalStorageEnabled] = useState(false);
-
   // Auto-save cache to localStorage whenever it changes
   useEffect(() => {
     try {
@@ -176,16 +169,6 @@ const SimpleFaceScanner: React.FC = () => {
     console.log('🔄 Resetting scanner...');
     setDetectedPerson(null);
     setCapturedImage('');
-  };
-
-  // Helper function to get the appropriate storage service
-  const getStorageService = () => {
-    if (sqliteEnabled) {
-      return localDatabase;
-    } else if (localStorageEnabled) {
-      return simpleLocalStorage;
-    }
-    return null;
   };
 
   // Auto-register new person with random ID
@@ -283,195 +266,75 @@ const SimpleFaceScanner: React.FC = () => {
   const initializeScanner = async () => {
     setIsLoading(true);
     setSyncStatus('Initializing system...');
-    setSystemStatus('Setting up ultra-fast face detection...');
-
-    // Overall initialization timeout (2 minutes max)
-    const initTimeout = setTimeout(() => {
-      console.error('⏰ INITIALIZATION TIMEOUT - Taking too long!');
-      setSystemStatus('Initialization timeout - check console');
-      setSyncStatus('Timeout error');
-      setIsLoading(false);
-    }, 120000); // 2 minutes
+    setSystemStatus('Setting up face detection...');
 
     try {
-      console.log('🚀 Starting ultra-fast scanner initialization with SQLite...');
-
-      // Step 1: Initialize face-api.js with timeout
+      // Initialize face-api.js for proper face recognition
+      console.log('🚀 Starting scanner initialization...');
       setSystemStatus('Initializing face-api.js...');
-      console.log('🧠 Starting face-api.js initialization...');
-      try {
-        await Promise.race([
-          faceApiService.initialize(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('face-api.js timeout')), 30000))
-        ]);
-        console.log('✅ face-api.js initialized successfully');
-      } catch (error) {
-        console.error('❌ face-api.js initialization failed:', error);
-        throw new Error(`face-api.js failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      await faceApiService.initialize();
+      console.log('✅ face-api.js initialized successfully');
 
-      // Step 2: Initialize local database with SQLite first, fallback to simple storage
-      setSystemStatus('Initializing local database...');
-      console.log('📂 Starting database initialization (SQLite with fallback)...');
+      // Preload members from Supabase
+      console.log('📡 Starting member preloading...');
+      await preloadMembersFromSupabase();
+      console.log('✅ Member preloading completed');
 
-      try {
-        await Promise.race([
-          localDatabase.initialize(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('SQLite timeout')), 15000))
-        ]);
-        console.log('✅ Local SQLite database initialized');
-        setSqliteEnabled(true);
-        setLocalStorageEnabled(false);
-      } catch (error) {
-        console.error('❌ SQLite initialization failed:', error);
-        console.log('⚠️ Falling back to simple localStorage...');
-
-        // Try simple localStorage fallback
-        try {
-          await Promise.race([
-            simpleLocalStorage.initialize(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('LocalStorage timeout')), 5000))
-          ]);
-          console.log('✅ Simple localStorage initialized');
-          setSqliteEnabled(false);
-          setLocalStorageEnabled(true);
-        } catch (fallbackError) {
-          console.error('❌ LocalStorage fallback also failed:', fallbackError);
-          console.log('⚠️ Continuing with basic Supabase-only mode');
-          setSqliteEnabled(false);
-          setLocalStorageEnabled(false);
-        }
-      }
-
-      // Step 3: Conditional data sync based on available storage
-      if (sqliteEnabled || localStorageEnabled) {
-        setSystemStatus('Syncing data from Supabase to local storage...');
-        setSyncStatus('Syncing from cloud...');
-        console.log('🔄 Starting Supabase sync...');
-        try {
-          if (sqliteEnabled) {
-            await Promise.race([
-              localDatabase.syncFromSupabase(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase sync timeout')), 20000))
-            ]);
-            const stats = localDatabase.getStats();
-            console.log('📊 SQLite database stats:', stats);
-          } else if (localStorageEnabled) {
-            await Promise.race([
-              simpleLocalStorage.syncFromSupabase(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase sync timeout')), 20000))
-            ]);
-            const stats = simpleLocalStorage.getStats();
-            console.log('📊 Simple localStorage stats:', stats);
-          }
-        } catch (error) {
-          console.error('❌ Supabase sync failed:', error);
-          // Don't fail completely - continue with empty database
-          console.log('⚠️ Continuing without sync - will use empty local storage');
-        }
-      } else {
-        console.log('⚠️ Skipping sync - no local storage available, using basic Supabase-only mode');
-        setSyncStatus('Basic mode (direct Supabase)');
-      }
-
-      // Step 4: Initialize face recognition based on available storage
-      setSystemStatus('Initializing face recognition...');
-      console.log('⚡ Starting face recognition initialization...');
-      try {
-        if (sqliteEnabled || localStorageEnabled) {
-          // Use optimized face recognition with local storage
-          await Promise.race([
-            optimizedFaceRecognition.initialize(sqliteEnabled ? localDatabase : simpleLocalStorage),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Face recognition timeout')), 10000))
-          ]);
-
-          const faceStats = optimizedFaceRecognition.getStats();
-          console.log('⚡ Face recognition stats:', faceStats);
-        } else {
-          // Basic fallback - just load data directly from Supabase
-          console.log('📊 Loading data directly from Supabase (basic mode)...');
-          const dbMembers = await getMembers();
-          const localFaces: LocalFaceData[] = dbMembers
-            .filter(member => member.photo_url)
-            .map(member => ({
-              id: `local_${member.id}`,
-              name: member.name,
-              image: member.photo_url!,
-              timestamp: member.created_at,
-              supabaseId: member.id
-            }));
-          localStorage.setItem('simpleFaces', JSON.stringify(localFaces));
-          setKnownFaces(localFaces);
-          console.log(`✅ Basic fallback mode loaded ${localFaces.length} members from Supabase`);
-        }
-      } catch (error) {
-        console.error('❌ Face recognition initialization failed:', error);
-        // Continue anyway - app can still function for camera and basic operations
-        console.log('⚠️ Continuing with minimal functionality');
-      }
-
-      // Step 5: Initialize fallback face detection
-      console.log('🔍 Starting face detection initialization...');
+      // Initialize fallback face detection
       const detectionReady = await initializeFaceDetection();
       console.log('🔍 Fallback face detection initialized:', detectionReady);
 
-      // Step 6: Start camera with timeout
-      setSystemStatus('Starting camera...');
-      console.log('📷 Starting camera...');
-      try {
-        await Promise.race([
-          startCamera(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Camera timeout')), 10000))
-        ]);
-        console.log('✅ Camera started successfully');
-      } catch (error) {
-        console.error('❌ Camera initialization failed:', error);
-        setSystemStatus('Camera failed - check permissions');
-        // Continue without camera - app can still be used for settings
-      }
+      setSystemStatus('Loading faces from database...');
 
-      // Update final status based on available storage
-      if (sqliteEnabled) {
-        const finalStats = localDatabase.getStats();
-        setSyncStatus('Ready');
-        setSystemStatus(`⚡ Ultra-fast SQLite: ${finalStats.membersWithPhotos} faces cached for instant matching`);
-        console.log('🎉 Ultra-fast SQLite scanner initialization completed!');
-        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached locally for instant recognition`);
-      } else if (localStorageEnabled) {
-        const finalStats = simpleLocalStorage.getStats();
-        setSyncStatus('Ready');
-        setSystemStatus(`⚡ Fast storage: ${finalStats.membersWithPhotos} faces cached for quick matching`);
-        console.log('🎉 Fast localStorage scanner initialization completed!');
-        console.log(`📊 Final performance: ${finalStats.membersWithPhotos} members cached locally for quick recognition`);
-      } else {
-        const knownFacesCount = knownFaces.length;
-        setSyncStatus('Ready (Basic)');
-        setSystemStatus(`📷 Basic mode: ${knownFacesCount} faces loaded from database`);
-        console.log('🎉 Basic scanner initialization completed!');
-        console.log(`📊 Basic performance: ${knownFacesCount} members loaded from Supabase`);
-      }
+      // Load from database and populate local cache
+      const dbMembers = await getMembers();
+      console.log('📊 Loaded from database:', dbMembers.length, 'members');
 
-      // Clear the timeout since we completed successfully
-      clearTimeout(initTimeout);
+      // Convert database members to local format AND local cache
+      const localFaces: LocalFaceData[] = dbMembers
+        .filter(member => member.photo_url) // Only members with photos
+        .map(member => ({
+          id: `local_${member.id}`,
+          name: member.name,
+          image: member.photo_url!,
+          timestamp: member.created_at,
+          supabaseId: member.id
+        }));
+
+      // Convert to local cache entries (marked as synced since they're from DB)
+      const cacheEntries: LocalCacheEntry[] = localFaces.map(face => ({
+        id: `cache_db_${face.supabaseId}`,
+        name: face.name,
+        image: face.image,
+        timestamp: face.timestamp,
+        captureTime: new Date(face.timestamp).getTime(),
+        synced: true, // Already in database
+        descriptor: undefined // Will be extracted when needed for matching
+      }));
+
+      // Save to localStorage for offline access
+      localStorage.setItem('simpleFaces', JSON.stringify(localFaces));
+      setKnownFaces(localFaces);
+
+      // Populate local cache with existing database faces
+      setLocalFaceCache(prev => {
+        // Merge with existing cache, avoiding duplicates
+        const existingIds = new Set(prev.map(entry => entry.id));
+        const newEntries = cacheEntries.filter(entry => !existingIds.has(entry.id));
+        const merged = [...prev, ...newEntries];
+        console.log(`🗄️ Local cache populated with ${newEntries.length} database faces. Total cache: ${merged.length}`);
+        return merged;
+      });
+
+      setSyncStatus('Database synced');
+      setSystemStatus(`Loaded ${localFaces.length} faces from database`);
 
     } catch (error) {
-      console.error('❌ Scanner initialization failed:', error);
-      clearTimeout(initTimeout); // Clear timeout on error too
-      setSystemStatus(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setSyncStatus('Error - check console');
+      console.error('Database load failed, trying localStorage:', error);
 
-      // Try to start camera anyway for basic functionality
-      try {
-        console.log('🔧 Attempting fallback camera start...');
-        await Promise.race([
-          startCamera(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Fallback camera timeout')), 5000))
-        ]);
-        setSystemStatus('Basic camera mode (initialization failed)');
-      } catch (cameraError) {
-        console.error('❌ Camera fallback also failed:', cameraError);
-        setSystemStatus('Complete initialization failure - check console and permissions');
-      }
+      // Fallback to localStorage if database fails
+      await loadFromLocalStorage();
+      setSyncStatus('Offline mode');
     }
 
     setIsLoading(false);
@@ -1847,47 +1710,47 @@ const SimpleFaceScanner: React.FC = () => {
 
     const similarityPercent = (similarity * 100).toFixed(1);
 
-    // switch (member.status) {
-    //   case 'Allowed':
-    //     setSystemStatus(`Welcome, ${member.name}!`);
-    //     setShowToast(true);
-    //     setToastMessage(`✅ Access Granted - ${member.name} (${similarityPercent}% match)`);
-    //     setToastColor('success');
-    //     setToastIcon('✅');
+    switch (member.status) {
+      case 'Allowed':
+        setSystemStatus(`Welcome, ${member.name}!`);
+        setShowToast(true);
+        setToastMessage(`✅ Access Granted - ${member.name} (${similarityPercent}% match)`);
+        setToastColor('success');
+        setToastIcon('✅');
 
-    //     // Log attendance
-    //     await logAttendance(member, similarity);
-    //     break;
+        // Log attendance
+        await logAttendance(member, similarity);
+        break;
 
-    //   case 'Banned':
-    //     setSystemStatus(`Access denied for ${member.name}`);
-    //     setShowToast(true);
-    //     setToastMessage(`🚫 Access Denied - ${member.name} is banned`);
-    //     setToastColor('danger');
-    //     setToastIcon('🚫');
-    //     break;
+      case 'Banned':
+        setSystemStatus(`Access denied for ${member.name}`);
+        setShowToast(true);
+        setToastMessage(`🚫 Access Denied - ${member.name} is banned`);
+        setToastColor('danger');
+        setToastIcon('🚫');
+        break;
 
-    //   case 'VIP':
-    //     setSystemStatus(`VIP Access: Welcome, ${member.name}!`);
-    //     setShowToast(true);
-    //     setToastMessage(`⭐ VIP Access - ${member.name} (${similarityPercent}% match)`);
-    //     setToastColor('warning');
-    //     setToastIcon('⭐');
+      case 'VIP':
+        setSystemStatus(`VIP Access: Welcome, ${member.name}!`);
+        setShowToast(true);
+        setToastMessage(`⭐ VIP Access - ${member.name} (${similarityPercent}% match)`);
+        setToastColor('warning');
+        setToastIcon('⭐');
 
-    //     // Log VIP attendance
-    //     await logAttendance(member, similarity);
-    //     break;
+        // Log VIP attendance
+        await logAttendance(member, similarity);
+        break;
 
-    //   default:
-    //     setSystemStatus(`Member found: ${member.name}`);
-    //     setShowToast(true);
-    //     setToastMessage(`👤 Member Identified - ${member.name} (${similarityPercent}% match)`);
-    //     setToastColor('primary');
-    //     setToastIcon('👤');
+      default:
+        setSystemStatus(`Member found: ${member.name}`);
+        setShowToast(true);
+        setToastMessage(`👤 Member Identified - ${member.name} (${similarityPercent}% match)`);
+        setToastColor('primary');
+        setToastIcon('👤');
 
-    //     await logAttendance(member, similarity);
-    //     break;
-    // }
+        await logAttendance(member, similarity);
+        break;
+    }
 
     // Reset after 5 seconds
     setTimeout(() => {
@@ -1931,63 +1794,25 @@ const SimpleFaceScanner: React.FC = () => {
     }
 
     try {
-      const storageService = getStorageService();
+      setSystemStatus('Registering new member...');
 
-      if (storageService) {
-        setSystemStatus('Registering new member to both databases...');
+      const newMember = {
+        name: newMemberName.trim(),
+        photo_url: capturedFaceImage,
+        status: 'Allowed' as const,
+        created_at: new Date().toISOString()
+      };
 
-        // Use dual-write system: Add to both local storage and Supabase simultaneously
-        const addedMember = await storageService.addMember({
-          name: newMemberName.trim(),
-          photo_url: capturedFaceImage,
-          status: 'Allowed'
-        });
+      const addedMember = await addMember(newMember);
 
-        if (addedMember) {
-          // Reload face recognition service to include the new member
-          console.log('🔄 Reloading face recognition with new member...');
-          await optimizedFaceRecognition.reloadMembers();
+      setShowToast(true);
+      setToastMessage(`✅ New member registered: ${newMemberName}`);
+      setToastColor('success');
+      setToastIcon('✅');
+      setSystemStatus(`Welcome, ${newMemberName}! (New member registered)`);
 
-          setShowToast(true);
-          setToastMessage(`✅ New member registered: ${newMemberName}`);
-          setToastColor('success');
-          setToastIcon('✅');
-          setSystemStatus(`Welcome, ${newMemberName}! (New member registered and synced)`);
-
-          // Log first-time attendance
-          await logAttendance(addedMember, 1.0);
-        } else {
-          throw new Error('Failed to register member to databases');
-        }
-      } else {
-        // Fallback to basic Supabase-only registration
-        console.log('⚠️ No local storage available, using direct Supabase registration');
-        setSystemStatus('Registering new member to database...');
-
-        // Add directly to Supabase
-        const { data: addedMember, error } = await supabase
-          .from('members')
-          .insert([{
-            name: newMemberName.trim(),
-            photo_url: capturedFaceImage,
-            status: 'Allowed'
-          }])
-          .select()
-          .single();
-
-        if (error || !addedMember) {
-          throw new Error(error?.message || 'Failed to register member');
-        }
-
-        setShowToast(true);
-        setToastMessage(`✅ New member registered: ${newMemberName}`);
-        setToastColor('success');
-        setToastIcon('✅');
-        setSystemStatus(`Welcome, ${newMemberName}! (New member registered)`);
-
-        // Log first-time attendance
-        await logAttendance(addedMember, 1.0);
-      }
+      // Log first-time attendance
+      await logAttendance(addedMember, 1.0);
 
     } catch (error) {
       console.error('❌ Registration failed:', error);
@@ -2519,55 +2344,35 @@ const SimpleFaceScanner: React.FC = () => {
       const randomId = `Person_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
       try {
-        const storageService = getStorageService();
+        // Add to local cache first
+        await addToLocalCache(randomId, analysisResults.capturedImage, false);
 
-        if (storageService) {
-          // Use dual-write system: Add to both local storage and Supabase simultaneously
-          console.log('💾 Auto-registering to both local and remote databases...');
-          const newMember = await storageService.addMember({
-            name: randomId,
-            photo_url: analysisResults.capturedImage,
-            status: 'Allowed' // Default new members to allowed
-          });
+        // Save to Supabase database
+        console.log('💾 Auto-registering to database...');
+        const newMember = await addMember({
+          name: randomId,
+          face_embedding: null,
+          status: 'Allowed', // Default new members to allowed
+          photo_url: analysisResults.capturedImage // Store the captured base64 image
+        });
 
-          if (newMember) {
-            console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id}) to both databases`);
+        if (newMember) {
+          console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id})`);
 
-            // Reload face recognition service to include the new member
-            console.log('🔄 Reloading face recognition with new member...');
-            await optimizedFaceRecognition.reloadMembers();
+          // Update local cache to mark as synced and set status
+          setLocalFaceCache(prev => prev.map(entry =>
+            entry.name === randomId
+              ? { ...entry, synced: true, status: 'Allowed' }
+              : entry
+          ));
 
-            // Show success toast
-            showToastMessage(`🆕 New member registered: ${randomId}`, 'success', '🆕', 4000);
-            setDetectedPerson(`NEW: ${randomId}`);
-            setSystemStatus(`🆕 New member registered: ${randomId} (synced to both databases)`);
-
-          } else {
-            throw new Error('Failed to save to databases');
-          }
-        } else {
-          // Fallback to basic Supabase-only registration
-          console.log('⚠️ No local storage available, using direct Supabase auto-registration');
-
-          // Add directly to Supabase
-          const { data: newMember, error } = await supabase
-            .from('members')
-            .insert([{
-              name: randomId,
-              photo_url: analysisResults.capturedImage,
-              status: 'Allowed'
-            }])
-            .select()
-            .single();
-
-          if (error || !newMember) {
-            throw new Error(error?.message || 'Failed to auto-register member');
-          }
-
-          console.log(`✅ AUTO-REGISTERED: ${randomId} (ID: ${newMember.id}) to Supabase`);
+          // Show success toast
           showToastMessage(`🆕 New member registered: ${randomId}`, 'success', '🆕', 4000);
           setDetectedPerson(`NEW: ${randomId}`);
-          setSystemStatus(`🆕 New member registered: ${randomId} (saved to database)`);
+          setSystemStatus(`🆕 New member registered: ${randomId}`);
+
+        } else {
+          throw new Error('Failed to save to database');
         }
 
       } catch (error) {
@@ -3452,8 +3257,8 @@ const SimpleFaceScanner: React.FC = () => {
         <IonToolbar style={{ '--background': 'linear-gradient(135deg, #1e40af 0%, #3730a3 50%, #581c87 100%)', '--color': 'white', '--border-width': '0', '--min-height': '70px' }}>
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center backdrop-blur-sm shadow-lg">
-                <span className="text-2xl">{organization?.name}</span>
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm shadow-lg">
+                <span className="text-2xl">🔒 {organization?.name}</span>
               </div>
            
             </div>
