@@ -17,10 +17,10 @@ import {
   IonLabel,
   IonIcon,
   IonRange,
-  IonPopover,
+  IonModal,
   IonToggle,
 } from '@ionic/react';
-import { refreshOutline, settingsOutline, speedometerOutline } from 'ionicons/icons';
+import { refreshOutline, settingsOutline, speedometerOutline, personCircleOutline } from 'ionicons/icons';
 import { Capacitor } from '@capacitor/core';
 import { supabase, Member, getMembers, getMembersMetadata, getMemberPhoto, setOrganizationContext, clearOrganizationContext } from '../services/supabaseClient';
 import { useOrganization } from '../contexts/OrganizationContext';
@@ -96,6 +96,17 @@ const SimpleFaceScanner: React.FC = () => {
       return 85;
     }
   });
+  const [similarityThreshold, setSimilarityThreshold] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('similarityThreshold');
+      const value = saved ? parseInt(saved, 10) : 70;
+      console.log('📐 Loaded similarity threshold:', value);
+      return value;
+    } catch (error) {
+      console.error('Failed to load similarity threshold from localStorage:', error);
+      return 70;
+    }
+  });
   const [showQualitySettings, setShowQualitySettings] = useState<boolean>(false);
   const [capturedFaceImage, setCapturedFaceImage] = useState<string>('');
   const [matchedMember, setMatchedMember] = useState<Member | null>(null);
@@ -156,6 +167,16 @@ const SimpleFaceScanner: React.FC = () => {
       console.error('❌ Failed to save face quality threshold to localStorage:', error);
     }
   }, [faceQualityThreshold]);
+
+  // Save similarity threshold to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('similarityThreshold', similarityThreshold.toString());
+      console.log('💾 Saved similarity threshold to localStorage:', similarityThreshold);
+    } catch (error) {
+      console.error('❌ Failed to save similarity threshold to localStorage:', error);
+    }
+  }, [similarityThreshold]);
 
   // Auto-close matching dialog based on member status with countdown + Auto-attendance with cooldown
   useEffect(() => {
@@ -2127,7 +2148,7 @@ const SimpleFaceScanner: React.FC = () => {
   const compareWithMembers = async (capturedImage: string, members: Member[]): Promise<{member: Member | null, similarity: number}> => {
     let bestMatch: Member | null = null;
     let bestSimilarity = 0;
-    const matchThreshold = 0.70; // 70% similarity threshold
+    const matchThreshold = similarityThreshold / 100; // Use user-configured similarity threshold
     const allMatches: Array<{member: Member, similarity: number}> = [];
 
     console.log('🔍 Starting ULTRA-OPTIMIZED face comparison with', members.length, 'members');
@@ -4081,14 +4102,13 @@ const SimpleFaceScanner: React.FC = () => {
               {/* Menu Buttons */}
               <div className="flex items-center space-x-2">
                 <IonButton
-                  id="quality-settings-trigger"
                   fill="clear"
                   size="small"
                   onClick={() => setShowQualitySettings(true)}
                   style={{ '--color': 'white', '--border-radius': '8px' }}
-                  title="Face Quality Settings"
+                  title="Scanner Settings"
                 >
-                  <IonIcon icon={speedometerOutline} style={{ fontSize: '20px' }} />
+                  <IonIcon icon={settingsOutline} style={{ fontSize: '20px' }} />
                 </IonButton>
 
                 <IonButton
@@ -4108,7 +4128,7 @@ const SimpleFaceScanner: React.FC = () => {
                   style={{ '--color': 'white', '--border-radius': '8px' }}
                   title="Admin Dashboard"
                 >
-                  <IonIcon icon={settingsOutline} style={{ fontSize: '20px' }} />
+                  <IonIcon icon={personCircleOutline} style={{ fontSize: '20px' }} />
                 </IonButton>
               </div>
             </div>
@@ -4246,7 +4266,7 @@ const SimpleFaceScanner: React.FC = () => {
             </div>
 
             {/* Camera Container */}
-            <div className="relative bg-black rounded-xl overflow-hidden shadow-2xl">
+            <div className="relative bg-black rounded-xl overflow-hidden shadow-2xl" style={{ maxHeight: 'calc(100vh - 350px)' }}>
               <video
                 ref={videoRef}
                 width="640"
@@ -4254,7 +4274,7 @@ const SimpleFaceScanner: React.FC = () => {
                 autoPlay
                 muted
                 className="w-full h-auto transform scale-x-[-1] bg-black"
-                style={{ maxHeight: '480px' }}
+                style={{ maxHeight: 'calc(100vh - 350px)', objectFit: 'cover' }}
               />
 
               <canvas
@@ -4262,7 +4282,7 @@ const SimpleFaceScanner: React.FC = () => {
                 width="640"
                 height="480"
                 className="absolute top-0 left-0 w-full h-auto transform scale-x-[-1] pointer-events-none z-10"
-                style={{ maxHeight: '480px' }}
+                style={{ maxHeight: 'calc(100vh - 350px)' }}
               />
 
               {/* Modern Overlay UI */}
@@ -4333,21 +4353,19 @@ const SimpleFaceScanner: React.FC = () => {
           )}
         </div>
 
-        {/* Alatiris Logo */}
-        <div className="mt-8 flex justify-center px-4">
-          <div className="flex flex-col items-center space-y-2">
+        {/* Alatiris Logo - Compact */}
+        <div className="mt-3 mb-2 flex justify-center px-4">
+          <div className="flex items-center space-x-2">
             <p className="text-xs text-gray-500 font-medium">Powered by</p>
-            <div className="flex items-center space-x-3">
-              <img
-                src="/alatiris_logo.png"
-                alt="Alatiris"
-                className="h-16 opacity-75 hover:opacity-90 transition-all duration-300"
-                style={{ maxWidth: '140px' }}
-              />
-              <div className="text-left">
-                <div className="text-lg font-bold text-gray-700">Volt5</div>
-                <div className="text-xs text-gray-500">Team</div>
-              </div>
+            <img
+              src="/alatiris_logo.png"
+              alt="Alatiris"
+              className="h-8 opacity-75"
+              style={{ maxWidth: '80px', objectFit: 'contain' }}
+            />
+            <div className="text-left">
+              <div className="text-sm font-bold text-gray-700">Volt5</div>
+              <div className="text-xs text-gray-500">Team</div>
             </div>
           </div>
         </div>
@@ -4904,25 +4922,33 @@ const SimpleFaceScanner: React.FC = () => {
         />
       </IonContent>
 
-      {/* Face Quality Settings Popover */}
-      <IonPopover
+      {/* Face Quality Settings Modal */}
+      <IonModal
         isOpen={showQualitySettings}
         onDidDismiss={() => setShowQualitySettings(false)}
-        trigger="quality-settings-trigger"
-        showBackdrop={true}
+        initialBreakpoint={0.75}
+        breakpoints={[0, 0.75, 1]}
       >
-        <div className="p-4" style={{ minWidth: '320px' }}>
-          <h3 className="text-lg font-semibold mb-4 text-gray-800">Scanner Settings</h3>
+        <IonHeader>
+          <IonToolbar>
+            <IonTitle>Scanner Settings</IonTitle>
+            <IonButton slot="end" fill="clear" onClick={() => setShowQualitySettings(false)}>
+              Done
+            </IonButton>
+          </IonToolbar>
+        </IonHeader>
+        <IonContent className="ion-padding">
+          <div className="space-y-4">
 
           {/* Auto-Scan Toggle */}
-          <div className="mb-4 pb-4 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <div>
+          <div className="mb-3 pb-3 border-b border-gray-200">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1">
                 <div className="text-sm font-semibold text-gray-800">
-                  🤖 Auto-Scan Mode
+                  🤖 Auto-Scan
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Automatically scan faces when detected
+                <div className="text-xs text-gray-500">
+                  Auto-detect faces
                 </div>
               </div>
               <IonToggle
@@ -4939,17 +4965,12 @@ const SimpleFaceScanner: React.FC = () => {
                 color="success"
               />
             </div>
-            {autoScanEnabled && (
-              <div className="mt-2 p-2 bg-green-50 rounded text-xs text-green-700">
-                ℹ️ Scanner will automatically detect and match faces
-              </div>
-            )}
           </div>
 
           {/* Quality Threshold Slider */}
-          <div className="mb-4">
-            <IonLabel className="block text-sm font-medium text-gray-700 mb-2">
-              Quality Threshold: {faceQualityThreshold}%
+          <div className="mb-3 pb-3 border-b border-gray-200">
+            <IonLabel className="block text-sm font-medium text-gray-700 mb-1">
+              Quality: {faceQualityThreshold}%
             </IonLabel>
             <IonRange
               min={50}
@@ -4961,31 +4982,51 @@ const SimpleFaceScanner: React.FC = () => {
                 setFaceQualityThreshold(newValue);
               }}
               pin={true}
-              ticks={true}
               snaps={true}
               color="primary"
             >
-              <IonLabel slot="start">50%</IonLabel>
-              <IonLabel slot="end">100%</IonLabel>
+              <IonLabel slot="start" className="text-xs">50</IonLabel>
+              <IonLabel slot="end" className="text-xs">100</IonLabel>
             </IonRange>
-            <p className="text-xs text-gray-600 mt-2">
-              Minimum face quality required to trigger {autoScanEnabled ? 'auto-scan' : 'manual scan'}
+            <p className="text-xs text-gray-500 mt-1">
+              Min quality to trigger scan
             </p>
           </div>
 
-
-          <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-            <span className="text-sm text-gray-600">Current: {faceQuality.toFixed(1)}%</span>
-            <IonButton
-              size="small"
-              fill="solid"
-              onClick={() => setShowQualitySettings(false)}
+          {/* Similarity Threshold Slider */}
+          <div className="mb-3">
+            <IonLabel className="block text-sm font-medium text-gray-700 mb-1">
+              🎯 Similarity: {similarityThreshold}%
+            </IonLabel>
+            <IonRange
+              min={50}
+              max={90}
+              step={5}
+              value={similarityThreshold}
+              onIonChange={(e) => {
+                const newValue = e.detail.value as number;
+                setSimilarityThreshold(newValue);
+              }}
+              pin={true}
+              snaps={true}
+              color="success"
             >
-              Done
-            </IonButton>
+              <IonLabel slot="start" className="text-xs">50</IonLabel>
+              <IonLabel slot="end" className="text-xs">90</IonLabel>
+            </IonRange>
+            <p className="text-xs text-gray-500 mt-1">
+              Min similarity to match (higher = stricter)
+            </p>
           </div>
-        </div>
-      </IonPopover>
+
+          {/* Current Quality Display */}
+          <div className="pt-3 border-t border-gray-200 text-center">
+            <span className="text-sm text-gray-600">Current Face Quality: <strong>{faceQuality.toFixed(1)}%</strong></span>
+          </div>
+
+          </div>
+        </IonContent>
+      </IonModal>
     </IonPage>
   );
 };
