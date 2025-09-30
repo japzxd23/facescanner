@@ -28,6 +28,7 @@ import { optimizedFaceRecognition } from '../services/optimizedFaceRecognition';
 import { localDatabase } from '../services/localDatabase';
 import { simpleLocalStorage } from '../services/simpleLocalStorage';
 import { imageStorage } from '../services/imageStorage';
+import { attendanceCooldown } from '../services/attendanceCooldown';
 import * as faceapi from 'face-api.js';
 
 interface LocalFaceData {
@@ -142,14 +143,49 @@ const SimpleFaceScanner: React.FC = () => {
     }
   }, [faceQualityThreshold]);
 
-  // Auto-close matching dialog based on member status with countdown
+  // Auto-close matching dialog based on member status with countdown + Auto-attendance with cooldown
   useEffect(() => {
     if (showMatchingDialog && matchingResults?.bestMatch) {
-      const memberStatus = matchingResults.bestMatch.status;
+      const member = matchingResults.bestMatch;
+      const memberStatus = member.status;
       let closeDelay = memberStatus === 'Banned' ? 5000 : 3000; // 5s for banned, 3s for allowed/VIP
       let secondsLeft = Math.ceil(closeDelay / 1000);
 
       setDialogCountdown(secondsLeft);
+
+      // Check cooldown and auto-trigger attendance for Allowed/VIP members
+      if (memberStatus === 'Allowed' || memberStatus === 'VIP') {
+        const canLog = attendanceCooldown.canLogAttendance(member.id);
+
+        if (canLog) {
+          console.log('✅ Cooldown expired - Auto-triggering attendance for', member.name);
+          setCooldownMessage('');
+
+          // Auto-trigger attendance after 1 second delay (let user see the dialog)
+          setTimeout(async () => {
+            try {
+              await logAttendance();
+              console.log('✅ Attendance automatically logged for', member.name);
+
+              // Record cooldown
+              attendanceCooldown.recordAttendance(
+                member.id,
+                member.name,
+                matchingResults.bestSimilarity
+              );
+            } catch (error) {
+              console.error('❌ Failed to auto-log attendance:', error);
+            }
+          }, 1000);
+        } else {
+          // Show cooldown message
+          const message = attendanceCooldown.getCooldownMessage(member.id, member.name);
+          setCooldownMessage(message);
+          console.log('⏱️ Cooldown active:', message);
+        }
+      } else if (memberStatus === 'Banned') {
+        setCooldownMessage('Access denied - Member is banned');
+      }
 
       console.log(`⏱️ Auto-closing dialog in ${secondsLeft}s for ${memberStatus} member`);
 
@@ -169,6 +205,7 @@ const SimpleFaceScanner: React.FC = () => {
         setShowMatchingDialog(false);
         setMatchingResults(null);
         setDialogCountdown(0);
+        setCooldownMessage('');
         resetProcessingState();
       }, closeDelay);
 
@@ -178,6 +215,7 @@ const SimpleFaceScanner: React.FC = () => {
       };
     } else {
       setDialogCountdown(0);
+      setCooldownMessage('');
     }
   }, [showMatchingDialog, matchingResults]);
 
@@ -198,6 +236,9 @@ const SimpleFaceScanner: React.FC = () => {
   // Dialog member photo state
   const [dialogMemberPhoto, setDialogMemberPhoto] = useState<string | null>(null);
   const [isLoadingDialogPhoto, setIsLoadingDialogPhoto] = useState<boolean>(false);
+
+  // Attendance cooldown state
+  const [cooldownMessage, setCooldownMessage] = useState<string>('');
 
   // Load member photo for dialog display
   useEffect(() => {
@@ -4178,13 +4219,32 @@ const SimpleFaceScanner: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Action Button */}
-                      <button
-                        onClick={() => handleConfirmMatch(matchingResults.bestMatch!, matchingResults.bestSimilarity)}
-                        className="w-full py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 font-medium transition-colors"
-                      >
-                        Continue as {matchingResults.bestMatch.name}
-                      </button>
+                      {/* Auto-Close Status / Cooldown Message */}
+                      <div className={`p-4 rounded-xl text-center ${
+                        cooldownMessage
+                          ? 'bg-orange-50 border-2 border-orange-300'
+                          : matchingResults.bestMatch.status === 'VIP'
+                            ? 'bg-purple-50 border-2 border-purple-300'
+                            : 'bg-green-50 border-2 border-green-300'
+                      }`}>
+                        {cooldownMessage ? (
+                          <div className="space-y-1">
+                            <div className="text-orange-600 font-medium">⏱️ Attendance Cooldown Active</div>
+                            <div className="text-sm text-orange-700">{cooldownMessage}</div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className={`font-medium ${
+                              matchingResults.bestMatch.status === 'VIP' ? 'text-purple-600' : 'text-green-600'
+                            }`}>
+                              ✅ Attendance automatically logged
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Auto-closing in {dialogCountdown} second{dialogCountdown !== 1 ? 's' : ''}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )
                 ) : (
@@ -4208,13 +4268,26 @@ const SimpleFaceScanner: React.FC = () => {
                       <p className="text-sm text-gray-600">Would you like to register as a new member?</p>
                     </div>
 
-                    {/* Register Button */}
-                    <button
-                      onClick={handleRejectAllMatches}
-                      className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-medium transition-colors"
-                    >
-                      Register as New Member
-                    </button>
+                    {/* Action Buttons */}
+                    <div className="space-y-3">
+                      <button
+                        onClick={handleRejectAllMatches}
+                        className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-medium transition-colors"
+                      >
+                        Register as New Member
+                      </button>
+                      <button
+                        onClick={() => {
+                          console.log('🔄 Closing no-match dialog');
+                          setShowMatchingDialog(false);
+                          setMatchingResults(null);
+                          resetProcessingState();
+                        }}
+                        className="w-full py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-medium transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -4235,58 +4308,61 @@ const SimpleFaceScanner: React.FC = () => {
         {showRegistrationPrompt && (
           <IonCard className="registration-dialog" style={{ position: 'fixed', top: '12%', left: '3%', right: '3%', zIndex: 1000, maxHeight: '76vh', overflow: 'auto', boxShadow: '0 0 20px rgba(0,0,0,0.5)', borderRadius: '12px' }}>
             <IonCardContent>
-              <div className="text-center">
-                <div className="mb-3">
-                  <span className="text-3xl">👤</span>
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <span className="text-3xl">➕</span>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-2">Register New Member</h3>
+                  <p className="text-sm text-gray-600">Enter the member's name to complete registration</p>
                 </div>
-                <h3 className="text-base font-bold mb-2">Face Not Recognized</h3>
 
+                {/* Captured Face Preview */}
                 {capturedFaceImage && (
-                  <div className="mb-3">
+                  <div className="flex justify-center">
                     <img
                       src={capturedFaceImage}
                       alt="Captured face"
-                      style={{ maxWidth: '100px', maxHeight: '100px', borderRadius: '8px', border: '2px solid #ccc', margin: '0 auto' }}
+                      className="w-24 h-24 rounded-full object-cover border-4 border-blue-300 shadow-md"
                     />
                   </div>
                 )}
 
-                <p className="text-gray-600 mb-3 text-sm px-2">
-                  This face is not in our database. Register as new member?
-                </p>
-
-                {/* Name Input Field - Mobile Optimized */}
-                <div className="mb-4 px-2">
-                  <IonItem style={{ '--background': 'white', '--border-radius': '8px', '--border': '1px solid #e5e7eb' }}>
-                    <IonLabel position="stacked" className="text-gray-700 font-medium text-sm">Member Name</IonLabel>
+                {/* Name Input Field */}
+                <div className="px-2">
+                  <IonItem style={{ '--background': '#ffffff', '--border-radius': '8px', '--border': '1px solid #e5e7eb' }}>
+                    <IonLabel position="stacked" className="text-gray-700 font-medium text-sm">Full Name</IonLabel>
                     <IonInput
                       value={newMemberName}
                       onIonInput={(e) => setNewMemberName(e.detail.value!)}
-                      placeholder="Enter full name"
+                      placeholder="Enter member's full name"
                       clearInput={true}
                       style={{
-                        '--color': '#374151',
-                        '--placeholder-color': '#9ca3af',
+                        '--background': '#ffffff',
+                        '--color': '#1f2937',
+                        '--placeholder-color': '#6b7280',
                         '--padding-start': '8px',
                         '--padding-end': '8px',
                         'font-size': '14px',
-                      'min-height': '40px'
+                        'min-height': '40px'
                       }}
                     />
                   </IonItem>
                 </div>
 
+                {/* Action Buttons */}
                 <div className="flex flex-col gap-3 px-2">
                   <button
                     onClick={handleNewMemberRegistration}
                     disabled={!newMemberName.trim()}
-                    className={`px-4 py-3 rounded-lg font-medium transition-colors text-sm ${
+                    className={`px-4 py-3 rounded-xl font-medium transition-colors ${
                       newMemberName.trim()
                         ? 'bg-blue-500 text-white hover:bg-blue-600'
                         : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     }`}
                   >
-                    ➕ Register New Member
+                    ✅ Confirm Registration
                   </button>
                   <button
                     onClick={() => {
@@ -4294,9 +4370,9 @@ const SimpleFaceScanner: React.FC = () => {
                       setNewMemberName('');
                       resetCaptureState();
                     }}
-                    className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-medium text-sm"
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-medium"
                   >
-                    ❌ Cancel
+                    Cancel
                   </button>
                 </div>
               </div>
