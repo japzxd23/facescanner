@@ -23,13 +23,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep Link for OAuth Callback -->
+            <!-- Deep Link for OAuth Callback (Custom URL Scheme) -->
             <intent-filter android:autoVerify="true"
                 tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.FaceCheck.app"
+                <data android:scheme="com.facecheck.app"
                     tools:ignore="AppLinkUrlError" />
             </intent-filter>
 

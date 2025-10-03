@@ -1,4 +1,6 @@
 import { supabase } from './supabaseClient';
+import { Browser } from '@capacitor/browser';
+import { Capacitor } from '@capacitor/core';
 
 export interface AuthUser {
   id: string;
@@ -33,38 +35,30 @@ const SESSION_KEY = 'FaceCheckSession';
 const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour in milliseconds
 
 /**
- * Sign in with Google OAuth
+ * Sign in with Google OAuth - uses Custom Tabs (Google policy compliant!)
  */
 export const signInWithGoogle = async (): Promise<AuthResult> => {
   try {
-    // Detect if running on mobile (Capacitor) or web
-    const isCapacitorNative = (window as any).Capacitor?.isNativePlatform?.() === true;
-    const isLocalhost = window.location.hostname === 'localhost' ||
-                       window.location.hostname === '127.0.0.1' ||
-                       window.location.protocol === 'http:';
+    // Detect if running on native platform
+    const isNativePlatform = Capacitor.isNativePlatform();
 
-    // Use deep link ONLY for native Capacitor app, NOT for localhost dev
-    const isMobile = isCapacitorNative && !isLocalhost;
-
-    // Use custom URL scheme for mobile APK, web URL for browser/localhost
-    const redirectUrl = isMobile
-      ? 'com.FaceCheck.app://auth/callback'  // Deep link for mobile APK
-      : `${window.location.origin}/auth/callback`; // Web URL for browser/localhost
+    // Use deep link for native, web URL for browser
+    const redirectUrl = isNativePlatform
+      ? 'com.facecheck.app://auth/callback'  // Deep link (Google allows this!)
+      : `${window.location.origin}/auth/callback`;
 
     console.log('🔍 OAuth Debug:', {
-      isCapacitorNative,
-      isLocalhost,
-      isMobile,
-      redirectUrl,
-      hostname: window.location.hostname,
-      protocol: window.location.protocol,
-      origin: window.location.origin
+      isNativePlatform,
+      platform: Capacitor.getPlatform(),
+      redirectUrl
     });
 
+    // Get OAuth URL from Supabase
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: redirectUrl,
+        skipBrowserRedirect: isNativePlatform, // Skip on native, we handle it
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
@@ -79,6 +73,31 @@ export const signInWithGoogle = async (): Promise<AuthResult> => {
       };
     }
 
+    if (!data?.url) {
+      return {
+        success: false,
+        error: 'No OAuth URL received from Supabase'
+      };
+    }
+
+    // For native: Open in Custom Tabs (Google allows OAuth here!)
+    if (isNativePlatform) {
+      console.log('🌐 Opening OAuth in Custom Tabs (Google-compliant):', data.url);
+
+      await Browser.open({
+        url: data.url,
+        presentationStyle: 'popover',
+        toolbarColor: '#2563eb'
+      });
+
+      // App will receive deep link callback
+      return {
+        success: true
+      };
+    }
+
+    // For web: Redirect normally
+    window.location.href = data.url;
     return {
       success: true
     };

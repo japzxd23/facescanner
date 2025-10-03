@@ -12,6 +12,7 @@ import {
 import { logoGoogle, arrowBack, shieldCheckmark } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
+import { signInWithGoogle } from '../services/authService';
 
 const AuthPage: React.FC = () => {
   const history = useHistory();
@@ -25,180 +26,148 @@ const AuthPage: React.FC = () => {
   const [userName, setUserName] = useState('');
 
   useEffect(() => {
-    // Handle OAuth callback - check if we have tokens in URL
+    // Handle OAuth callback from deep link (Custom Tabs)
     const handleOAuthCallback = async () => {
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const accessToken = hashParams.get('access_token');
+      console.log('🚀 useEffect triggered, checking for OAuth tokens...');
 
-      if (accessToken) {
-        console.log('🔑 OAuth tokens found in URL, processing...');
-        console.log('🔍 Full hash params:', window.location.hash);
+      // Check sessionStorage first (from deep link), then URL hash (from web)
+      let hash = sessionStorage.getItem('oauth_callback_hash') || window.location.hash;
+      console.log('📍 Hash source:', sessionStorage.getItem('oauth_callback_hash') ? 'sessionStorage' : 'URL');
+      console.log('📍 Hash value:', hash);
+
+      // Clear sessionStorage after reading
+      if (sessionStorage.getItem('oauth_callback_hash')) {
+        sessionStorage.removeItem('oauth_callback_hash');
+      }
+
+      if (!hash || hash.length <= 1) {
+        console.log('ℹ️ No OAuth tokens found, waiting for callback...');
+        return;
+      }
+
+      const hashParams = new URLSearchParams(hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+
+      console.log('🔍 Token check:', {
+        hasAccessToken: !!accessToken,
+        hasRefreshToken: !!refreshToken
+      });
+
+      if (accessToken && refreshToken) {
+        console.log('🔑 OAuth tokens found in URL hash');
         setIsLoading(true);
 
         try {
-          console.log('⏳ Calling supabase.auth.getSession()...');
+          console.log('⏳ Setting Supabase session...');
+          // Set Supabase session with tokens
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
 
-          // Add a timeout to prevent infinite hanging
-          const sessionPromise = supabase.auth.getSession();
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('TIMEOUT')), 5000)
-          );
-
-          let data: any = null;
-          let error: any = null;
-
-          try {
-            // Race between session call and timeout
-            const result = await Promise.race([sessionPromise, timeoutPromise]) as any;
-            data = result.data;
-            error = result.error;
-            console.log('📦 getSession response:', { data, error });
-          } catch (timeoutError: any) {
-            if (timeoutError.message === 'TIMEOUT') {
-              console.log('⏱️ getSession timed out, will use manual setSession');
-            } else {
-              throw timeoutError;
-            }
-          }
-
-          // If we got a valid session from getSession
-          if (data?.session?.user) {
-            console.log('✅ Session established for:', data.session.user.email);
-            await handleSuccessfulAuth(data.session.user);
+          if (sessionError) {
+            console.error('❌ Error setting session:', sessionError);
+            setIsLoading(false);
+            setAlertHeader('Authentication Error');
+            setAlertMessage(sessionError.message);
+            setShowAlert(true);
             return;
           }
 
-          // If getSession failed or timed out, try manual setSession
-          console.log('⚠️ No session from getSession, trying manual setSession from hash...');
-          const refreshToken = hashParams.get('refresh_token');
+          console.log('✅ Session set successfully');
 
-          if (refreshToken) {
-            console.log('🔄 Setting session with tokens from URL...');
+          // Get user from session
+          console.log('⏳ Getting user from session...');
+          const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+          console.log('📊 User fetch result:', { user: user?.email, error: userError });
+
+          if (user) {
+            console.log('✅ OAuth successful for:', user.email);
+            console.log('👤 User metadata:', user.user_metadata);
+
+            // Clear hash from URL
+            window.history.replaceState({}, document.title, '/auth');
+
+            // Process user authentication
+            console.log('🔄 Checking if user exists in organization_users...');
 
             try {
-              // Add timeout for setSession too
-              const setSessionPromise = supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken
-              });
-              const setSessionTimeout = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('SET_SESSION_TIMEOUT')), 5000)
-              );
+              const { data: orgUser, error: orgError } = await supabase
+                .from('organization_users')
+                .select('*, organizations(*)')
+                .eq('email', user.email)
+                .eq('is_active', true)
+                .single();
 
-              const { data: sessionData, error: sessionError } = await Promise.race([
-                setSessionPromise,
-                setSessionTimeout
-              ]) as any;
-              console.log('📦 setSession response:', { sessionData, sessionError });
+              console.log('📊 Organization user check:', { orgUser, orgError });
 
-              if (sessionError) {
-                console.error('❌ Error setting session:', sessionError);
-                throw sessionError;
-              }
-
-              if (sessionData.session?.user) {
-                console.log('✅ Session manually established for:', sessionData.session.user.email);
-                await handleSuccessfulAuth(sessionData.session.user);
-                return;
-              }
-            } catch (setSessionError: any) {
-              if (setSessionError.message === 'SET_SESSION_TIMEOUT') {
-                console.log('⏱️ setSession also timed out, bypassing Supabase Auth entirely');
-
-                // Parse the JWT token to get user info directly
-                try {
-                  const tokenParts = accessToken.split('.');
-                  const payload = JSON.parse(atob(tokenParts[1]));
-                  console.log('🔓 Decoded token payload:', payload);
-
-                  // Create a mock user object from the token
-                  const mockUser = {
-                    id: payload.sub,
-                    email: payload.email,
-                    user_metadata: payload.user_metadata || {}
-                  };
-
-                  console.log('🚀 Bypassing Supabase session, using token data directly');
-                  await handleSuccessfulAuth(mockUser, true); // Pass flag to skip session check
-                  return;
-                } catch (decodeError) {
-                  console.error('❌ Failed to decode token:', decodeError);
-                }
+              if (orgUser && orgUser.organizations) {
+                // Existing user - redirect to dashboard
+                console.log('✅ Existing user found, redirecting to dashboard');
+                const sessionData = {
+                  user: {
+                    id: orgUser.id,
+                    email: orgUser.email,
+                    full_name: orgUser.full_name,
+                    role: orgUser.role
+                  },
+                  organization: orgUser.organizations,
+                  timestamp: Date.now()
+                };
+                localStorage.setItem('FaceCheckSession', JSON.stringify(sessionData));
+                setIsLoading(false);
+                window.location.href = '/admin/dashboard';
               } else {
-                console.error('❌ setSession error:', setSessionError);
+                // New user - show org setup
+                console.log('🆕 New user, showing organization setup');
+                setUserEmail(user.email);
+                setUserName(user.user_metadata?.full_name || user.user_metadata?.name || '');
+                setIsLoading(false);
+                setShowOrgSetup(true);
               }
+            } catch (dbError: any) {
+              console.error('❌ Database error:', dbError);
+              // If DB check fails, show org setup anyway
+              console.log('⚠️ DB check failed, showing org setup');
+              setUserEmail(user.email);
+              setUserName(user.user_metadata?.full_name || user.user_metadata?.name || '');
+              setIsLoading(false);
+              setShowOrgSetup(true);
             }
+          } else {
+            console.error('❌ No user found after setting session');
+            setIsLoading(false);
+            setAlertHeader('Authentication Error');
+            setAlertMessage('Failed to get user information');
+            setShowAlert(true);
           }
-
-          // If we get here, everything failed
-          console.error('❌ No refresh token found in URL hash');
+        } catch (error: any) {
+          console.error('❌ OAuth error:', error);
           setIsLoading(false);
           setAlertHeader('Authentication Error');
-          setAlertMessage('Unable to establish session. Please try signing in again.');
-          setShowAlert(true);
-
-        } catch (err: any) {
-          console.error('❌ Exception during OAuth callback:', err);
-          setIsLoading(false);
-          setAlertHeader('Authentication Error');
-          setAlertMessage(err.message || 'An unexpected error occurred.');
+          setAlertMessage(error.message);
           setShowAlert(true);
         }
-      } else {
-        // No OAuth callback, check existing session
-        checkExistingSession();
       }
     };
 
+    // Run on mount
     handleOAuthCallback();
 
-    // Listen for auth state changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔐 Auth event:', event);
+    // Also listen for custom event from deep link handler
+    const oauthListener = (event: Event) => {
+      console.log('📢 OAuth callback event received');
+      handleOAuthCallback();
+    };
 
-      if (event === 'SIGNED_IN' && session?.user) {
-        console.log('✅ User signed in:', session.user.email);
-        await handleSuccessfulAuth(session.user);
-      }
-    });
+    window.addEventListener('oauth_callback', oauthListener);
 
     return () => {
-      authListener.subscription.unsubscribe();
+      window.removeEventListener('oauth_callback', oauthListener);
     };
   }, []);
-
-  const checkExistingSession = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        // Check if user exists in organization_users
-        const { data: orgUser } = await supabase
-          .from('organization_users')
-          .select('*, organizations(*)')
-          .eq('email', session.user.email)
-          .eq('is_active', true)
-          .single();
-
-        if (orgUser && orgUser.organizations) {
-          // User exists and has organization, redirect to admin
-          const sessionData = {
-            user: {
-              id: orgUser.id,
-              email: orgUser.email,
-              full_name: orgUser.full_name,
-              role: orgUser.role
-            },
-            organization: orgUser.organizations
-          };
-          localStorage.setItem('FaceCheckSession', JSON.stringify(sessionData));
-          window.location.href = '/admin/dashboard';
-        }
-      }
-    } catch (error) {
-      console.error('Error checking session:', error);
-    }
-  };
 
   const handleSuccessfulAuth = async (user: any, skipSessionCheck = false) => {
     try {
@@ -297,59 +266,38 @@ const AuthPage: React.FC = () => {
       }
     } catch (error: any) {
       console.error('❌ Auth handling error:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       setIsLoading(false);
       setAlertHeader('Authentication Error');
       setAlertMessage(error.message || 'Failed to complete authentication');
       setShowAlert(true);
+    } finally {
+      // Ensure loading is always cleared
+      console.log('🏁 handleSuccessfulAuth finally block');
     }
   };
 
   const handleGoogleSignIn = async () => {
     try {
-      setIsLoading(true);
+      // Initiate OAuth (opens Custom Tabs)
+      const result = await signInWithGoogle();
 
-      // Detect if running on mobile (Capacitor) or web
-      // For Capacitor, check if we're running as a native app
-      const isCapacitorNative = (window as any).Capacitor?.isNativePlatform?.() === true;
-      const isLocalhost = window.location.hostname === 'localhost' ||
-                         window.location.hostname === '127.0.0.1' ||
-                         window.location.protocol === 'http:';
+      if (!result.success) {
+        setAlertHeader('Sign-In Failed');
+        setAlertMessage(result.error || 'Failed to sign in with Google. Please try again.');
+        setShowAlert(true);
+        return;
+      }
 
-      // Use deep link ONLY for native Capacitor app, NOT for localhost dev
-      const isMobile = isCapacitorNative && !isLocalhost;
-
-      // Use custom URL scheme for mobile APK, web URL for browser/localhost
-      const redirectUrl = isMobile
-        ? 'com.FaceCheck.app://auth/callback'  // Deep link for mobile APK
-        : `${window.location.origin}/auth/callback`; // Web URL for browser/localhost
-
-      console.log('🔍 OAuth Debug:', {
-        isCapacitorNative,
-        isLocalhost,
-        isMobile,
-        redirectUrl,
-        hostname: window.location.hostname,
-        protocol: window.location.protocol,
-        origin: window.location.origin
-      });
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          }
-        }
-      });
-
-      if (error) throw error;
-
-      // OAuth flow will redirect, so we keep loading state
+      // OAuth initiated - Custom Tabs opens
+      // Deep link callback will handle the rest (see useEffect above)
+      console.log('✅ OAuth initiated, waiting for callback...');
     } catch (error: any) {
       console.error('Google sign-in error:', error);
-      setIsLoading(false);
       setAlertHeader('Sign-In Failed');
       setAlertMessage(error.message || 'Failed to sign in with Google. Please try again.');
       setShowAlert(true);

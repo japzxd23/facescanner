@@ -7,6 +7,7 @@ import {
 } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
 import { App as CapacitorApp } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 
 /* Core CSS required for Ionic components to work properly */
 import '@ionic/react/css/core.css';
@@ -62,19 +63,52 @@ const AppContent: React.FC = () => {
   const history = useHistory();
 
   useEffect(() => {
-    // Listen for deep link events from OAuth redirect
-    const listener = CapacitorApp.addListener('appUrlOpen', (event: any) => {
+    // Listen for deep link from Custom Tabs OAuth callback
+    const listener = CapacitorApp.addListener('appUrlOpen', async (event: any) => {
       console.log('🔗 Deep link received:', event.url);
 
-      // Parse deep link: com.FaceCheck.app://auth/callback#access_token=...
-      const url = new URL(event.url);
+      try {
+        // Close Custom Tabs browser
+        await Browser.close();
+        console.log('✅ Browser closed');
+      } catch (error) {
+        console.log('ℹ️ Browser already closed');
+      }
 
-      // Extract hash parameters from deep link
-      const hash = url.hash;
+      // Parse deep link: com.facecheck.app://auth/callback#access_token=...
+      const urlString = event.url;
 
-      if (url.pathname === '//auth/callback' || url.pathname === '/auth/callback') {
-        // Navigate to auth callback page with hash params
-        history.push(`/auth/callback${hash}`);
+      // Check if this is an OAuth callback URL
+      if (urlString.includes('auth/callback') || urlString.includes('auth#')) {
+        console.log('✅ OAuth callback detected');
+
+        // Extract hash manually (URL parser may not work properly with custom schemes)
+        const hashIndex = urlString.indexOf('#');
+        const hash = hashIndex !== -1 ? urlString.substring(hashIndex) : '';
+
+        console.log('📦 Hash from deep link:', hash);
+
+        if (hash && hash.length > 1) {
+          // Store hash in sessionStorage
+          console.log('💾 Storing tokens in sessionStorage');
+          sessionStorage.setItem('oauth_callback_hash', hash);
+
+          // Dispatch custom event to trigger AuthPage processing
+          console.log('📢 Dispatching oauth_callback event');
+          window.dispatchEvent(new CustomEvent('oauth_callback', { detail: { hash } }));
+
+          // Navigate to auth page if not already there
+          console.log('🔄 Checking current path...');
+          const currentPath = window.location.pathname;
+          if (currentPath !== '/auth') {
+            console.log('🔄 Navigating to /auth');
+            history.replace('/auth');
+          } else {
+            console.log('✅ Already on /auth, event listener will handle processing');
+          }
+        } else {
+          console.warn('⚠️ No hash found in deep link URL');
+        }
       }
     });
 
